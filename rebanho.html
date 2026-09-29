@@ -15,18 +15,17 @@
 <script src="layout.js"></script>
 <script src="animal.js"></script>
 <script>
-let filtroCat = 'Todos', busca = '', filtroProp = '';
+let filtroCat = 'Todos', busca = '';
 (async () => { if (!await iniciarPagina('rebanho')) return; window.aoSalvar = carregar; carregar(); })();
 
 async function carregar() {
   const main = document.getElementById('main');
   try {
     await carregarBase();
-    const props = propriedades();
-    main.innerHTML = head('Rebanho', 'Relação de todos os animais ativos. Clique numa linha para abrir a ficha com genealogia, crias, prêmios, histórico e curva de lactação.',
+    main.innerHTML = head('Rebanho' + (BASE.fazenda ? ' · ' + esc(BASE.fazenda.nome) : ''), 'Relação de todos os animais ativos. Clique numa linha para abrir a ficha com genealogia, crias, prêmios, histórico e curva de lactação.',
       `<button class="btn" onclick="exportarCSV()">Exportar relação (planilha)</button><button class="btn pri" onclick="formAnimal()">Cadastrar animal</button>`) +
       `<div class="toolbar"><div class="chips" id="chips"></div>
-       <div class="actions">${props.length ? `<select class="search" id="fprop" onchange="filtroProp=this.value;tabela()"><option value="">Todas as propriedades</option>${props.map(p => `<option ${p === filtroProp ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>` : ''}
+       <div class="actions">
        <input class="search" id="busca" type="search" placeholder="Buscar por brinco, nome, raça ou registro" value="${esc(busca)}" oninput="busca=this.value;tabela()"></div></div>
        <section class="card"><div class="scroll" id="tab"></div></section>`;
     tabela();
@@ -36,22 +35,22 @@ async function carregar() {
 }
 function filtrados() {
   const t = busca.toLowerCase();
-  return BASE.animais.filter(a => (filtroCat === 'Todos' || (filtroCat === 'Machos' ? ehMacho(a) : a.categoria === filtroCat)) && (!filtroProp || a.propriedade === filtroProp)
+  return BASE.animais.filter(a => (filtroCat === 'Todos' || (filtroCat === 'Machos' ? ehMacho(a) : a.categoria === filtroCat))
     && (!t || [a.brinco, a.nome, a.raca, a.registro].join(' ').toLowerCase().includes(t)));
 }
 function tabela() {
-  const A = BASE.animais, nMachos = A.filter(ehMacho).length, variasProps = propriedades().length > 1;
+  const A = BASE.animais, nMachos = A.filter(ehMacho).length, variasFaz = !BASE.fazenda && BASE.fazendas.filter(f => f.ativo).length > 1;
   document.getElementById('chips').innerHTML = ['Todos', ...CATEGORIAS, ...(nMachos ? ['Machos'] : [])].map(c => `<button class="chip ${c === filtroCat ? 'on' : ''}" onclick="filtroCat='${c}';tabela()">${c}<em>${c === 'Todos' ? A.length : c === 'Machos' ? nMachos : A.filter(a => a.categoria === c).length}</em></button>`).join('');
   if (!A.length) { document.getElementById('tab').innerHTML = `<div class="empty-big"><b>Nenhum animal cadastrado</b>Use o botão "Cadastrar animal" para começar.</div>`; return; }
   const rows = filtrados();
   document.getElementById('tab').innerHTML = `<table class="tbl"><thead><tr><th>Brinco</th><th>Nome</th><th>Sexo</th><th>Raça</th><th>Registro</th><th>Categoria</th><th>Lote</th><th>Idade</th><th class="num">Lact.</th><th class="num">DEL</th><th class="num">L/dia</th><th>Situação</th><th class="num">CCS</th></tr></thead><tbody>
-  ${rows.map(a => { const p = prodAtual(a), c = ccsAtual(a); return `<tr class="click" onclick="ficha(${a.id})"><td><span class="brinco">${esc(a.brinco)}</span></td><td><b>${esc(a.nome || '')}</b>${a.propriedade && variasProps && !filtroProp ? `<br><small class="muted">${esc(a.propriedade)}</small>` : ''}</td><td class="muted">${ehMacho(a) ? 'M' : 'F'}</td><td class="muted">${esc(a.raca || '—')}</td><td class="mono muted">${esc(a.registro || '—')}</td><td>${a.categoria}</td><td class="muted">${esc(loteNome(a).split(' · ')[0])}</td><td class="muted">${idadeTxt(a.data_nascimento)}</td><td class="num mono">${a.numero_lactacao || '—'}</td><td class="num mono">${delDe(a) ?? '—'}</td><td class="num mono">${p != null ? nf(p, 1) : '—'}${emCarencia(a) ? ' ' + pill('carência', 'bad') : ''}</td><td>${situacao(a)}</td><td class="num mono ${c > 500 ? 'down' : ''}">${c != null ? nf(c) : '—'}</td></tr>`; }).join('') || `<tr><td colspan="13" class="empty">Nenhum animal encontrado com esse filtro.</td></tr>`}</tbody></table>`;
+  ${rows.map(a => { const p = prodAtual(a), c = ccsAtual(a); return `<tr class="click" onclick="ficha(${a.id})"><td><span class="brinco">${esc(a.brinco)}</span></td><td><b>${esc(a.nome || '')}</b>${variasFaz && fazendaNome(a) ? `<br><small class="muted">${esc(fazendaNome(a))}</small>` : ''}</td><td class="muted">${ehMacho(a) ? 'M' : 'F'}</td><td class="muted">${esc(a.raca || '—')}</td><td class="mono muted">${esc(a.registro || '—')}</td><td>${a.categoria}</td><td class="muted">${esc(loteNome(a).split(' · ')[0])}</td><td class="muted">${idadeTxt(a.data_nascimento)}</td><td class="num mono">${a.numero_lactacao || '—'}</td><td class="num mono">${delDe(a) ?? '—'}</td><td class="num mono">${p != null ? nf(p, 1) : '—'}${emCarencia(a) ? ' ' + pill('carência', 'bad') : ''}</td><td>${situacao(a)}</td><td class="num mono ${c > 500 ? 'down' : ''}">${c != null ? nf(c) : '—'}</td></tr>`; }).join('') || `<tr><td colspan="13" class="empty">Nenhum animal encontrado com esse filtro.</td></tr>`}</tbody></table>`;
 }
 // Relação de animais em CSV (abre no Excel), respeitando os filtros da tela
 function exportarCSV() {
   const mae = a => a.mae_id ? BASE.porId.get(a.mae_id) : null;
   const cols = [['Brinco', a => a.brinco], ['Nome', a => a.nome], ['Sexo', a => ehMacho(a) ? 'Macho' : 'Fêmea'], ['Raça', a => a.raca], ['Registro', a => a.registro], ['Categoria', a => a.categoria],
-    ['Nascimento', a => a.data_nascimento ? fdy(a.data_nascimento) : ''], ['Idade', a => idadeTxt(a.data_nascimento)], ['Propriedade', a => a.propriedade], ['Procedência', a => a.procedencia], ['Lote', a => loteNome(a)],
+    ['Nascimento', a => a.data_nascimento ? fdy(a.data_nascimento) : ''], ['Idade', a => idadeTxt(a.data_nascimento)], ['Fazenda', a => fazendaNome(a)], ['Procedência', a => a.procedencia], ['Lote', a => loteNome(a)],
     ['Pai', a => a.pai], ['Registro do pai', a => a.pai_registro], ['Mãe', a => mae(a) ? nomeCurto(mae(a)) : a.mae_externa], ['Registro da mãe', a => mae(a) ? mae(a).registro : a.mae_registro],
     ['Lactações', a => a.numero_lactacao], ['Último parto', a => a.data_ultimo_parto ? fdy(a.data_ultimo_parto) : ''], ['Situação reprodutiva', a => a.situacao_reprodutiva], ['Última cobrição', a => a.data_ultima_ia ? fdy(a.data_ultima_ia) : ''], ['Touro', a => a.touro_ultima_ia],
     ['Parto previsto', a => prevParto(a) ? fdy(prevParto(a)) : ''], ['Leite (L/dia)', a => prodAtual(a) != null ? nf(prodAtual(a), 1) : ''], ['Peso (kg)', a => a.peso]];

@@ -12,6 +12,7 @@
 const MENU = [
   ['painel', 'Painel'],
   ['rebanho', 'Rebanho'],
+  ['fazendas', 'Fazendas'],
   ['producao', 'Produção de leite'],
   ['ranking', 'Ranking de produção'],
   ['reproducao', 'Reprodução'],
@@ -28,6 +29,7 @@ async function iniciarPagina(pagina) {
     <div class="app">
       <aside class="side">
         <div class="brand"><img src="logo-gm.png" alt="GM Agronegócios"><div><b>OrdenhaDigital</b><small>Controle do rebanho leiteiro</small></div></div>
+        <div class="sel-faz" id="selFazenda" hidden></div>
         <nav class="nav">${MENU.map(([p, t]) => `<a href="${p}.html" class="${p === pagina ? 'on' : ''}">${t}</a>`).join('')}</nav>
         <div class="foot"><span id="userEmail"></span>
           <div class="row"><button class="ghost" type="button" onclick="alternarTema()">Alternar tema</button><button class="ghost" type="button" onclick="logout()">Sair</button></div></div>

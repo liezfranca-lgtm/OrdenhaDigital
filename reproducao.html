@@ -30,7 +30,7 @@ async function carregar() {
     const pc = media(pren.filter(a => a.data_ultimo_parto).map(a => dd(pd(a.data_ultima_ia), pd(a.data_ultimo_parto))));
     const bloco = (t, sub, arr, fn) => `<section class="card"><header><h2>${t}</h2><span>${sub}</span></header><div class="list">${arr.length ? arr.map(a => `<div class="li" onclick="ficha(${a.id})"><span>${animLink(a)}<br><small>${fn(a)}</small></span></div>`).join('') : '<div class="empty">Nada pendente.</div>'}</div></section>`;
 
-    main.innerHTML = head('Reprodução', 'Inseminação, diagnóstico de gestação, secagem e partos. Os prazos são calculados sozinhos a partir das datas lançadas.', `<button class="btn pri" onclick="formEvento()">Registrar evento reprodutivo</button>`) +
+    main.innerHTML = head('Reprodução', 'Inseminação, diagnóstico de gestação, secagem e partos. Os prazos são calculados sozinhos a partir das datas lançadas.' + notaFazenda(), `<button class="btn pri" onclick="formEvento()">Registrar evento reprodutivo</button>`) +
     `<div class="kpis">
       ${kpi('Vacas prenhes', vacas.length ? nf(pren.length / vacas.length * 100) + '%' : '—', `${pren.length} de ${vacas.length} · meta 55% ou mais`)}
       ${kpi('IEP projetado', iep ? nf(iep / 30.44, 1) : '—', 'meses entre partos · meta 13', iep ? 'm' : '')}

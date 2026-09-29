@@ -70,7 +70,7 @@ function desenhar() {
   const pod = filtradas.slice(0, 3);
   const ordemPod = pod.length === 3 ? [pod[1], pod[0], pod[2]] : pod;
 
-  main.innerHTML = head('Ranking de produção', `As vacas que mais dão leite · ${M.desc}.`) + filtros +
+  main.innerHTML = head('Ranking de produção', `As vacas que mais dão leite · ${M.desc}.` + notaFazenda()) + filtros +
   `<div class="kpis">
     ${kpi('Campeã', esc(pod[0].a.nome || pod[0].a.brinco), `${v(pod[0][F.metrica])} ${M.un} · brinco ${esc(pod[0].a.brinco)}`)}
     ${kpi('Média do grupo', v(media), `${filtradas.length} vacas no ranking`, M.un)}

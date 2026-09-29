@@ -16,20 +16,42 @@ const COBRICOES = ['Inseminação', 'Monta natural', 'Transferência de embrião
 
 let BASE = null;
 // Carrega o que quase toda tela usa: animais ativos, lotes, touros, tratamentos e última pesagem de cada vaca
-async function carregarBase() {
+// Com uma fazenda escolhida na barra lateral, todas as telas do rebanho mostram só os animais dela.
+// { todas: true } ignora esse filtro (usado na tela de Fazendas, que compara todas).
+async function carregarBase(opts = {}) {
   const desde = iso(addD(HOJE, -420));
-  const [animais, lotes, touros, tratamentos, pesagens] = await Promise.all([
+  const [todosAnimais, lotes, touros, tratamentos, pesagens, fazendas] = await Promise.all([
     buscarPaginado(() => sb.from('animais').select('*').eq('ativo', true).order('brinco')),
     q(sb.from('lotes').select('*').order('ordem')),
     q(sb.from('touros').select('*').order('codigo')),
     buscarPaginado(() => sb.from('tratamentos').select('*').gte('data_liberacao', iso(addD(HOJE, -120))).order('data_inicio')),
     buscarPaginado(() => sb.from('pesagens_leite').select('animal_id,data,manha,tarde,total,ccs').gte('data', desde).order('data')),
+    q(sb.from('fazendas').select('*').order('nome')),
   ]);
+  const fz = fazendaSelecionada(fazendas);
+  const animais = fz && !opts.todas ? todosAnimais.filter(a => a.fazenda_id === fz.id) : todosAnimais;
   const ultPes = new Map(), ultCcs = new Map();
   pesagens.forEach(p => { ultPes.set(p.animal_id, p); if (p.ccs != null) ultCcs.set(p.animal_id, p); });
-  BASE = { animais, lotes, touros, tratamentos, pesagens, ultPes, ultCcs,
-    porId: new Map(animais.map(a => [a.id, a])), lotePorId: new Map(lotes.map(l => [l.id, l])) };
+  BASE = { animais, todosAnimais, lotes, touros, tratamentos, pesagens, ultPes, ultCcs, fazendas, fazenda: opts.todas ? null : fz,
+    porId: new Map(animais.map(a => [a.id, a])), lotePorId: new Map(lotes.map(l => [l.id, l])), fazPorId: new Map(fazendas.map(f => [f.id, f])) };
+  montarSeletorFazenda();
   return BASE;
+}
+// Texto para o subtítulo das telas quando uma fazenda está escolhida
+const notaFazenda = (comTanque = false) => BASE.fazenda ? ` <b>Mostrando só ${esc(BASE.fazenda.nome)}.</b>${comTanque ? ' O leite do tanque é de todas as fazendas.' : ''}` : '';
+function fazendaSelecionada(fazendas) {
+  let id = null; try { id = +localStorage.getItem('ordenha-fazenda') || null; } catch (e) {}
+  return id ? fazendas.find(f => f.id === id && f.ativo) || null : null;
+}
+function escolherFazenda(id) {
+  try { id ? localStorage.setItem('ordenha-fazenda', id) : localStorage.removeItem('ordenha-fazenda'); } catch (e) {}
+  location.reload();
+}
+function montarSeletorFazenda() {
+  const el = document.getElementById('selFazenda'); if (!el) return;
+  const ativas = BASE.fazendas.filter(f => f.ativo), atual = fazendaSelecionada(BASE.fazendas);
+  el.hidden = ativas.length < 2;
+  el.innerHTML = `<label>Fazenda<select onchange="escolherFazenda(this.value)"><option value="">Todas as fazendas</option>${ativas.map(f => `<option value="${f.id}" ${atual && atual.id === f.id ? 'selected' : ''}>${esc(f.nome)}</option>`).join('')}</select></label>`;
 }
 
 // ---------- regras ----------
@@ -79,7 +101,8 @@ const animLink = a => `<span class="brinco">${esc(a.brinco)}</span> ${esc(a.nome
 const nomeCurto = a => a ? a.brinco + (a.nome ? ' ' + a.nome : '') : '';
 const optAnimais = (filtro, sel) => BASE.animais.filter(filtro).map(a => `<option value="${a.id}" ${a.id == sel ? 'selected' : ''}>${esc(a.brinco)}${a.nome ? ' · ' + esc(a.nome) : ''} (${a.categoria})</option>`).join('');
 const optLotes = sel => `<option value="">— sem lote —</option>` + BASE.lotes.filter(l => l.ativo).map(l => `<option value="${l.id}" ${l.id == sel ? 'selected' : ''}>${esc(l.nome)}</option>`).join('');
-const propriedades = () => [...new Set(BASE.animais.map(a => a.propriedade).filter(Boolean))].sort();
+const fazendaNome = a => a.fazenda_id && BASE.fazPorId.get(a.fazenda_id) ? BASE.fazPorId.get(a.fazenda_id).nome : '';
+const optFazendas = sel => `<option value="">— sem fazenda —</option>` + BASE.fazendas.filter(f => f.ativo || f.id == sel).map(f => `<option value="${f.id}" ${f.id == sel ? 'selected' : ''}>${esc(f.nome)}</option>`).join('');
 
 // ---------- pendências do dia ----------
 function calcAlertas(extra = {}) {
@@ -143,7 +166,7 @@ async function ficha(id) {
     a.mae_id ? q(sb.from('animais').select('*').eq('id', a.mae_id)) : Promise.resolve([]),
   ]);
   const p = prevParto(a), del = delDe(a), prod = prodAtual(a), mae = maeArr[0] || null;
-  const dl = [['Sexo', ehMacho(a) ? 'Macho' : 'Fêmea'], ['Raça', a.raca || '—'], ['Categoria', a.categoria], ['Registro', a.registro || 'sem registro'], ['Propriedade', a.propriedade || '—'], ['Procedência', a.procedencia || '—'], ['Lote', loteNome(a)], ['Nascimento', fdy(a.data_nascimento)], ['Idade', idadeTxt(a.data_nascimento)]];
+  const dl = [['Sexo', ehMacho(a) ? 'Macho' : 'Fêmea'], ['Raça', a.raca || '—'], ['Categoria', a.categoria], ['Registro', a.registro || 'sem registro'], ['Fazenda', fazendaNome(a) || '—'], ['Procedência', a.procedencia || '—'], ['Lote', loteNome(a)], ['Nascimento', fdy(a.data_nascimento)], ['Idade', idadeTxt(a.data_nascimento)]];
   if (!ehMacho(a) && !ehCria(a)) dl.push(['Lactações', a.numero_lactacao || '—']);
   if (a.categoria === 'Lactação' || a.categoria === 'Seca') dl.push(['Último parto', fdy(a.data_ultimo_parto)], ['DEL', del ?? '—'], ['Produção', prod != null ? nf(prod, 1) + ' L/dia' : a.categoria === 'Seca' ? 'seca' : 'sem pesagem']);
   if (a.data_ultima_ia) dl.push(['Última cobrição', fdy(a.data_ultima_ia)], ['Touro', a.touro_ultima_ia || '—'], ['Cobrições no ciclo', a.ias_no_ciclo]);
@@ -189,7 +212,7 @@ function formAnimal(id, catPadrao) {
     <label>Raça<input name="raca" id="fa-raca" list="dl-racas" value="${v('raca')}"><datalist id="dl-racas">${RACAS.map(r => `<option>${r}</option>`).join('')}</datalist></label>
     <label>Nº de registro (associação)<input name="registro" id="fa-reg" value="${v('registro')}" placeholder="deixe em branco se não tem"></label>
     <label>Nascimento<input name="data_nascimento" id="fa-nasc" type="date" value="${v('data_nascimento')}"></label><label>Lote<select name="lote_id" id="fa-lote">${optLotes(a ? a.lote_id : '')}</select></label>
-    <label>Propriedade<input name="propriedade" id="fa-prop" list="dl-props" value="${v('propriedade')}"><datalist id="dl-props">${propriedades().map(p => `<option>${esc(p)}</option>`).join('')}</datalist></label>
+    <label>Fazenda<select name="fazenda_id" id="fa-faz">${optFazendas(a ? a.fazenda_id : (BASE.fazenda ? BASE.fazenda.id : (BASE.fazendas.filter(f => f.ativo).length === 1 ? BASE.fazendas.find(f => f.ativo).id : '')))}</select></label>
     <label>Procedência<input name="procedencia" id="fa-proc" list="dl-proc" value="${v('procedencia')}" placeholder="Ex.: nascida na fazenda, comprada de…"><datalist id="dl-proc"><option>Nascida na fazenda</option><option>Comprada</option></datalist></label>
     <label>Peso atual (kg)<input name="peso" id="fa-peso" type="number" step="0.1" min="0" value="${v('peso')}"></label><label>Peso ao nascer (kg)<input name="peso_nascimento" id="fa-pnasc" type="number" step="0.1" min="0" value="${v('peso_nascimento')}"></label>
     <label class="full">Observação<input name="observacao" id="fa-obs" value="${v('observacao')}"></label>
@@ -213,7 +236,7 @@ function formAnimal(id, catPadrao) {
       const t = s => (s || '').trim() || null;
       const reg = {
         brinco: f.brinco.trim(), nome: t(f.nome), raca: t(f.raca), categoria: f.categoria, sexo: f.sexo, registro: t(f.registro),
-        propriedade: t(f.propriedade), procedencia: t(f.procedencia), data_nascimento: f.data_nascimento || null, lote_id: f.lote_id ? +f.lote_id : null,
+        fazenda_id: f.fazenda_id ? +f.fazenda_id : null, procedencia: t(f.procedencia), data_nascimento: f.data_nascimento || null, lote_id: f.lote_id ? +f.lote_id : null,
         mae_id: f.mae_id ? +f.mae_id : null, pai: t(f.pai), pai_registro: t(f.pai_registro), avo_paterno: t(f.avo_paterno), avo_paterna: t(f.avo_paterna),
         mae_externa: f.mae_id ? null : t(f.mae_externa), mae_registro: f.mae_id ? null : t(f.mae_registro),
         avo_materno: f.mae_id ? null : t(f.avo_materno), avo_materna: f.mae_id ? null : t(f.avo_materna),
@@ -313,7 +336,7 @@ function formEvento(id) {
         if (f.cria !== 'Natimorto' && (!macho || f.brinco_cria.trim())) {
           if (!f.brinco_cria.trim()) throw new Error('informe o brinco da bezerra.');
           const lb = lotesTipo('bezerras')[0];
-          const b = await q(sb.from('animais').insert({ brinco: f.brinco_cria.trim(), nome: f.nome_cria.trim() || null, sexo: macho ? 'M' : 'F', raca: a.raca, categoria: macho ? 'Bezerro' : 'Bezerra', data_nascimento: d, mae_id: a.id, pai, propriedade: a.propriedade, procedencia: 'Nascid' + (macho ? 'o' : 'a') + ' na fazenda', registro: f.registro_cria.trim() || null, peso_nascimento: f.peso_cria ? +f.peso_cria : null, peso: f.peso_cria ? +f.peso_cria : null, lote_id: lb ? lb.id : null, situacao_reprodutiva: 'Em recria', colostro_ok: !!f.colostro, leite_aleitamento: 6 }).select().single());
+          const b = await q(sb.from('animais').insert({ brinco: f.brinco_cria.trim(), nome: f.nome_cria.trim() || null, sexo: macho ? 'M' : 'F', raca: a.raca, categoria: macho ? 'Bezerro' : 'Bezerra', data_nascimento: d, mae_id: a.id, pai, fazenda_id: a.fazenda_id, procedencia: 'Nascid' + (macho ? 'o' : 'a') + ' na fazenda', registro: f.registro_cria.trim() || null, peso_nascimento: f.peso_cria ? +f.peso_cria : null, peso: f.peso_cria ? +f.peso_cria : null, lote_id: lb ? lb.id : null, situacao_reprodutiva: 'Em recria', colostro_ok: !!f.colostro, leite_aleitamento: 6 }).select().single());
           await registrarEvento(b.id, d, 'Nascimento', `${macho ? 'Filho' : 'Filha'} de ${a.brinco}` + (pai ? ' e ' + pai : '') + (f.peso_cria ? ' · ' + f.peso_cria + ' kg' : '') + (f.colostro ? ' · colostro ok' : ' · sem registro de colostro'));
           det += ` · ${macho ? 'bezerro' : 'bezerra'} ${b.brinco}`;
         }

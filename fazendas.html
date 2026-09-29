@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Fazendas</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script src="animal.js"></script>
+<script>
+const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
+(async () => { if (!await iniciarPagina('fazendas')) return; window.aoSalvar = carregar; carregar(); })();
+
+// Resumo do rebanho de uma fazenda
+function resumo(fid) {
+  const A = BASE.animais.filter(a => (a.fazenda_id || null) === fid), L = A.filter(a => a.categoria === 'Lactação');
+  const comPes = L.map(prodAtual).filter(v => v != null), leite = comPes.reduce((s, v) => s + v, 0);
+  const vacas = A.filter(a => a.categoria === 'Lactação' || a.categoria === 'Seca');
+  return { total: A.length, lact: L.length, secas: A.filter(a => a.categoria === 'Seca').length, novilhas: A.filter(a => a.categoria === 'Novilha').length,
+    crias: A.filter(ehCria).length, machos: A.filter(ehMacho).length, leite, media: comPes.length ? leite / comPes.length : null,
+    prenhes: vacas.filter(a => a.situacao_reprodutiva === 'Prenhe').length, vacas: vacas.length };
+}
+
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    await carregarBase({ todas: true });
+    const F = BASE.fazendas, ativas = F.filter(f => f.ativo), semFaz = resumo(null);
+    const tot = ativas.map(f => ({ f, r: resumo(f.id) }));
+    const leiteTot = tot.reduce((s, x) => s + x.r.leite, 0);
+    main.innerHTML = head('Fazendas', 'Propriedades da GM Agronegócios e o rebanho de cada uma. Escolha uma fazenda na barra lateral para ver só os animais dela em todas as telas.', `<button class="btn pri" onclick="formFazenda()">Cadastrar fazenda</button>`) +
+    (F.length ? `<div class="kpis">
+      ${kpi('Fazendas', ativas.length, F.length > ativas.length ? (F.length - ativas.length) + ' desativada(s)' : 'cadastradas')}
+      ${kpi('Área total', nf(ativas.reduce((s, f) => s + Number(f.area_total || 0), 0)), nf(ativas.reduce((s, f) => s + Number(f.area_pastagem || 0), 0)) + ' ha de pastagem', 'ha')}
+      ${kpi('Animais', BASE.animais.length, semFaz.total ? semFaz.total + ' sem fazenda definida' : 'todos com fazenda')}
+      ${kpi('Leite por dia', nf(leiteTot), 'soma das últimas pesagens', 'L')}
+    </div>
+    <div class="grid g2e">${tot.map(({ f, r }) => cartao(f, r, leiteTot)).join('')}</div>
+    ${semFaz.total ? `<section class="card mb"><header><h2>Animais sem fazenda</h2><span>${semFaz.total} animais</span></header><p class="muted" style="margin:0">Abra a ficha do animal e use Editar para escolher a fazenda.</p></section>` : ''}
+    ${F.length > ativas.length ? `<section class="card"><header><h2>Fazendas desativadas</h2></header><div class="list">${F.filter(f => !f.ativo).map(f => `<div class="li" onclick="formFazenda(${f.id})"><span class="nm">${esc(f.nome)}</span><small>clique para reativar ou editar</small></div>`).join('')}</div></section>` : ''}`
+    : `<section class="card"><div class="empty-big"><b>Nenhuma fazenda cadastrada</b>Cadastre as propriedades para separar o rebanho de cada uma.<br><button class="btn pri" onclick="formFazenda()">Cadastrar fazenda</button></div></section>`);
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar as fazendas</b>${esc(e.message)}</div></div>`; }
+}
+function cartao(f, r, leiteTot) {
+  const local = [f.municipio, f.uf].filter(Boolean).join(' / ');
+  const lot = f.area_pastagem && r.total ? r.total / Number(f.area_pastagem) : null;
+  const cats = [['Lactação', r.lact, 'var(--accent)'], ['Secas', r.secas, 'var(--info)'], ['Novilhas', r.novilhas, 'var(--warn)'], ['Crias', r.crias, 'var(--cost)'], ...(r.machos - r.crias > 0 ? [['Machos adultos', r.machos - r.crias, 'var(--c5)']] : [])];
+  const dl = [['Proprietário', f.proprietario], ['Município', local], ['Área total', f.area_total ? nf(f.area_total, 1) + ' ha' : null], ['Pastagem', f.area_pastagem ? nf(f.area_pastagem, 1) + ' ha' : null], ['Inscrição estadual', f.inscricao_estadual], ['CAR', f.car]].filter(x => x[1]);
+  return `<section class="card">
+    <header><div><h2>${esc(f.nome)}</h2><span>${esc(local || 'município não informado')}</span></div><div class="actions"><button class="btn sm" onclick="escolherFazenda(${f.id})">Ver só esta fazenda</button><button class="btn sm" onclick="formFazenda(${f.id})">Editar</button></div></header>
+    <div class="kpis" style="margin-bottom:10px">
+      ${kpi('Animais', r.total, lot ? nf(lot, 1) + ' cab/ha de pastagem' : '')}
+      ${kpi('Em lactação', r.lact, r.vacas ? nf(r.prenhes / r.vacas * 100) + '% das vacas prenhes' : '')}
+      ${kpi('Leite por dia', nf(r.leite), leiteTot ? nf(r.leite / leiteTot * 100) + '% do total' : '', 'L')}
+      ${kpi('Média por vaca', r.media != null ? nf(r.media, 1) : '—', 'litros/dia', r.media != null ? 'L' : '')}
+    </div>
+    ${r.total ? `<div class="stack">${cats.map(([, n, c]) => `<span style="width:${n / r.total * 100}%;background:${c}"></span>`).join('')}</div><div class="legend" style="margin-bottom:10px">${cats.map(([t, n, c]) => `<span><i style="background:${c}"></i>${t} ${n}</span>`).join('')}</div>` : '<div class="empty">Nenhum animal nesta fazenda.</div>'}
+    ${dl.length ? `<dl class="dl" style="margin:6px 0 0">${dl.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}
+    ${f.observacao ? `<p class="muted" style="margin:8px 0 0">${esc(f.observacao)}</p>` : ''}
+  </section>`;
+}
+function formFazenda(id) {
+  const f = id ? BASE.fazendas.find(x => x.id === id) : null, v = k => f && f[k] != null ? esc(f[k]) : '';
+  const nAnimais = f ? BASE.animais.filter(a => a.fazenda_id === id).length : 0;
+  abrirModal({
+    titulo: f ? 'Editar fazenda' : 'Cadastrar fazenda',
+    corpo: `<label class="full">Nome da fazenda<input name="nome" id="ff-nome" required value="${v('nome')}"></label>
+    <label>Proprietário<input name="proprietario" id="ff-prop" value="${v('proprietario')}"></label><label>Município<input name="municipio" id="ff-mun" value="${v('municipio')}"></label>
+    <label>UF<select name="uf" id="ff-uf"><option value="">—</option>${UFS.map(u => `<option ${f && f.uf === u ? 'selected' : ''}>${u}</option>`).join('')}</select></label><label>Inscrição estadual<input name="ie" id="ff-ie" value="${v('inscricao_estadual')}"></label>
+    <label>Área total (ha)<input name="area_total" id="ff-area" type="number" step="0.01" min="0" value="${v('area_total')}"></label><label>Área de pastagem (ha)<input name="area_pastagem" id="ff-past" type="number" step="0.01" min="0" value="${v('area_pastagem')}"></label>
+    <label class="full">CAR (Cadastro Ambiental Rural)<input name="car" id="ff-car" value="${v('car')}"></label>
+    <label class="full">Observação<input name="observacao" id="ff-obs" value="${v('observacao')}"></label>
+    ${f ? `<label class="chk full"><input type="checkbox" name="ativo" id="ff-ativo" ${f.ativo ? 'checked' : ''}> Fazenda ativa</label>
+    ${!nAnimais ? `<div class="full"><button type="button" class="btn sm danger" onclick="excluirFazenda(${id})">Excluir fazenda</button></div>` : `<div class="hint">Esta fazenda tem ${nAnimais} animais. Para excluir, mova os animais antes; ou desmarque "Fazenda ativa" para escondê-la.</div>`}` : ''}`,
+    salvar: async d => {
+      const t = s => (s || '').trim() || null;
+      const reg = { nome: d.nome.trim(), proprietario: t(d.proprietario), municipio: t(d.municipio), uf: d.uf || null, inscricao_estadual: t(d.ie), car: t(d.car), observacao: t(d.observacao),
+        area_total: d.area_total ? +d.area_total : null, area_pastagem: d.area_pastagem ? +d.area_pastagem : null };
+      if (f) { reg.ativo = !!d.ativo; await q(sb.from('fazendas').update(reg).eq('id', id)); }
+      else await q(sb.from('fazendas').insert(reg));
+      await depoisDeSalvar(`Fazenda ${reg.nome} salva`);
+    }
+  });
+}
+function excluirFazenda(id) {
+  const f = BASE.fazendas.find(x => x.id === id);
+  confirmar('Excluir fazenda', `Excluir <b>${esc(f.nome)}</b>? Ela não tem animais.`, async () => {
+    await q(sb.from('fazendas').delete().eq('id', id));
+    try { if (+localStorage.getItem('ordenha-fazenda') === id) localStorage.removeItem('ordenha-fazenda'); } catch (e) {}
+    await depoisDeSalvar('Fazenda excluída');
+  }, 'Excluir');
+}
+</script>
+</body>
+</html>

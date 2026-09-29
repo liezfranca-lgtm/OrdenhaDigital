@@ -33,7 +33,7 @@ async function carregar() {
     const lotesL = lotesTipo('lactacao');
     const mudar = L.filter(a => { const s = loteSugerido(a); return s && s.id !== a.lote_id; });
 
-    main.innerHTML = head('Produção de leite', 'Entrega diária no tanque, produção por lote e controle leiteiro individual (pesagem por vaca).',
+    main.innerHTML = head('Produção de leite', 'Entrega diária no tanque, produção por lote e controle leiteiro individual (pesagem por vaca).' + notaFazenda(true),
       `<button class="btn" onclick="formTanque()">Lançar leite do tanque</button><button class="btn pri" onclick="formControleRebanho()">Controle leiteiro do rebanho</button>`) +
     `<div class="kpis">
       ${kpi('Entregue' + (ult ? ' · ' + fd(ult.data) : ''), ult ? nf(ult.litros) : '—', ult && Number(ult.descartado) ? nf(ult.descartado, 1) + ' L descartados' : 'litros no tanque', ult ? 'L' : '')}

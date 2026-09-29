@@ -45,6 +45,8 @@ h2{font-size:1.02rem;font-weight:700}
 .brand b{font-family:var(--f-display);font-stretch:118%;font-size:1.02rem;font-weight:800;line-height:1.1}
 .brand small{color:var(--muted);font-size:.74rem;display:block}
 .nav{display:flex;flex-direction:column;gap:2px}
+.sel-faz label{display:flex;flex-direction:column;gap:4px;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;padding:0 6px}
+.sel-faz select{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 9px;font-size:.86rem;text-transform:none;letter-spacing:0;font-weight:600;color:var(--ink)}
 .nav a{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;color:var(--ink);text-decoration:none;font-weight:500}
 .nav a:hover{background:var(--sunk)}
 .nav a.on{background:var(--accent-soft);color:var(--accent);font-weight:650}
@@ -220,6 +222,7 @@ select.search{width:auto}
   .app{grid-template-columns:minmax(0,1fr)}
   .side{position:sticky;top:0;height:auto;flex-direction:row;align-items:center;padding:10px 16px;border-right:0;border-bottom:1px solid var(--line);z-index:20;overflow:visible;gap:12px}
   .brand img{width:70px}.brand b,.brand small,.side .foot{display:none}
+  .sel-faz label{padding:0;font-size:0;gap:0}.sel-faz select{max-width:150px}
   .nav{flex-direction:row;overflow-x:auto;gap:4px;min-width:0;flex:1}
   .nav a{white-space:nowrap;padding:6px 10px}
   main{padding-inline:16px}

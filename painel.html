@@ -40,21 +40,23 @@ async function carregar() {
     const ant = tanque.slice(-8, -1), m7 = ant.length ? ant.reduce((s, p) => s + Number(p.litros), 0) / ant.length : null;
     const variacao = ult && m7 ? (Number(ult.litros) / m7 - 1) * 100 : null;
     const comPes = L.map(prodAtual).filter(v => v != null);
-    const media = ult && L.length ? Number(ult.litros) / L.length : comPes.length ? comPes.reduce((s, v) => s + v, 0) / comPes.length : null;
+    // Com uma fazenda escolhida o tanque (que é de todas) não serve de base: usa as pesagens das vacas dela
+    const litrosBase = !BASE.fazenda && ult ? Number(ult.litros) : comPes.reduce((s, v) => s + v, 0);
+    const media = !BASE.fazenda && ult && L.length ? Number(ult.litros) / L.length : comPes.length ? comPes.reduce((s, v) => s + v, 0) / comPes.length : null;
     const an = analises[0];
     const cats = [['Lactação', 'var(--accent)'], ['Seca', 'var(--info)'], ['Novilha', 'var(--warn)'], ['Bezerra', 'var(--cost)'], ...(A.some(ehMacho) ? [['Machos', 'var(--c5)']] : [])];
     const daCat = c => A.filter(a => c === 'Machos' ? ehMacho(a) : a.categoria === c);
     const prox = A.filter(a => prevParto(a)).sort((a, b) => prevParto(a) - prevParto(b)).slice(0, 6);
     const pts = tanque.map(t => ({ d: pd(t.data), v: Number(t.litros) }));
 
-    main.innerHTML = head('Painel do dia', 'Resumo da ordenha, do rebanho e do que precisa de atenção hoje.', botoes) +
+    main.innerHTML = head('Painel do dia', 'Resumo da ordenha, do rebanho e do que precisa de atenção hoje.' + notaFazenda(true), botoes) +
     `<div class="kpis">
       ${kpi('Leite entregue' + (ult ? ' · ' + fd(ult.data) : ''), ult ? nf(ult.litros) : '—', variacao != null ? `<span class="${variacao >= 0 ? 'up' : 'down'}">${variacao >= 0 ? '▲' : '▼'} ${nf(Math.abs(variacao), 1)}%</span> vs. média 7 dias` : 'lance em Produção de leite', ult ? 'L' : '')}
       ${kpi('Vacas em lactação', L.length, vacas.length ? `de ${vacas.length} vacas · ${nf(L.length / vacas.length * 100)}%` : '')}
       ${kpi('Média por vaca', media != null ? nf(media, 1) : '—', 'litros/vaca/dia', media != null ? 'L' : '')}
       ${kpi('CCS do tanque', an && an.ccs != null ? nf(an.ccs) : '—', an ? 'mil cél/mL · ' + mesTxt(an.mes) + ' · limite 500' : 'lance em Qualidade')}
       ${kpi('Vacas prenhes', vacas.length ? nf(pren / vacas.length * 100) + '%' : '—', `${pren} de ${vacas.length} vacas`)}
-      ${kpi('Custo alimentar', nut.custoDia && ult ? brl(nut.custoDia / Number(ult.litros)) : '—', nut.custoDia ? 'por litro · ' + brl(nut.custoDia, 0) + '/dia' : 'cadastre as dietas')}
+      ${kpi('Custo alimentar', nut.custoDia && litrosBase ? brl(nut.custoDia / litrosBase) : '—', nut.custoDia ? 'por litro · ' + brl(nut.custoDia, 0) + '/dia' : 'cadastre as dietas')}
     </div>
     <div class="grid g2">
       <section class="card"><header><h2>Leite no tanque · últimos 30 dias</h2><span class="legend"><span><i style="background:var(--accent)"></i>diário</span><span><i style="background:var(--muted)"></i>média 7 dias</span></span></header>${lineChart(pts, { label: 'Litros entregues por dia' })}</section>
