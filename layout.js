@@ -133,7 +133,7 @@ function confirmar(titulo, texto, acao, textoBotao = 'Confirmar') {
 
 // ---------- gráficos (SVG) ----------
 function niceStep(r) { const p = Math.pow(10, Math.floor(Math.log10(r || 1))); const n = r / p; return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * p; }
-function lineChart(pts, { unit = 'L', label = '' } = {}) {
+function lineChart(pts, { unit = 'L', label = '', media = true } = {}) {
   if (pts.length < 2) return `<div class="empty">Lance pelo menos dois dias para ver o gráfico.</div>`;
   const W = 680, H = 230, pl = 48, pr = 18, pt = 16, pb = 28, ys = pts.map(p => p.v);
   let lo = Math.min(...ys), hi = Math.max(...ys); const st = niceStep((hi - lo) / 4 || Math.max(hi / 4, 1));
@@ -146,7 +146,7 @@ function lineChart(pts, { unit = 'L', label = '' } = {}) {
   const line = path(pts), area = line + `L${x(pts.length - 1)},${y(lo)}L${x(0)},${y(lo)}Z`;
   const avg = pts.map((p, i) => { const s = pts.slice(Math.max(0, i - 6), i + 1); return { v: s.reduce((a, b) => a + b.v, 0) / s.length }; });
   const l = pts[pts.length - 1];
-  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="${esc(label)}">${g}<path class="ch-area" d="${area}"/><path class="ch-avg" d="${path(avg)}"/><path class="ch-line" d="${line}"/><circle class="ch-dot" cx="${x(pts.length - 1)}" cy="${y(l.v)}" r="4.5"/><text class="ch-end" x="${x(pts.length - 1) - 8}" y="${y(l.v) - 10}" text-anchor="end">${nf(l.v)} ${unit}</text>${xl}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="${esc(label)}">${g}<path class="ch-area" d="${area}"/>${media ? `<path class="ch-avg" d="${path(avg)}"/>` : ''}<path class="ch-line" d="${line}"/><circle class="ch-dot" cx="${x(pts.length - 1)}" cy="${y(l.v)}" r="4.5"/><text class="ch-end" x="${x(pts.length - 1) - 8}" y="${y(l.v) - 10}" text-anchor="end">${nf(l.v)} ${unit}</text>${xl}</svg>`;
 }
 // Curva de lactação: pontos {d: dias em lactação, l: litros} + curva esperada (Wood) ajustada aos pontos
 const woodForma = d => Math.pow(Math.max(d, 1), 0.2) * Math.exp(-0.004 * d);

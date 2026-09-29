@@ -27,7 +27,7 @@ async function carregar() {
     const N = BASE.animais.filter(a => a.categoria === 'Novilha').sort((a, b) => (a.data_nascimento || '').localeCompare(b.data_nascimento || ''));
     const aleit = B.filter(b => !b.data_desmama);
     const gmds = B.filter(b => b.peso && idadeD(b) > 0).map(b => (b.peso - PESO_NASCER) / idadeD(b));
-    main.innerHTML = head('Bezerras e novilhas', 'Cria e recria: colostro, aleitamento, desmama, vacina B19, peso e idade para a primeira inseminação.', `<button class="btn pri" onclick="formAnimal(null,'Bezerra')">Cadastrar cria</button>`) +
+    main.innerHTML = head('Bezerras e novilhas', 'Cria e recria: colostro, aleitamento, desmama, vacina B19, peso e idade para a primeira inseminação.', `<button class="btn" onclick="formPesoGrupo('cat:Bezerra')">Pesagem em grupo</button><button class="btn pri" onclick="formAnimal(null,'Bezerra')">Cadastrar cria</button>`) +
     `<div class="kpis">
       ${kpi('Bezerreiro', B.length, B.filter(b => b.categoria === 'Bezerra').length + ' fêmeas · ' + B.filter(b => b.categoria === 'Bezerro').length + ' machos')}
       ${kpi('Em aleitamento', aleit.length, nf(aleit.reduce((s, b) => s + Number(b.leite_aleitamento || 0), 0)) + ' L de leite por dia')}
@@ -48,21 +48,6 @@ async function carregar() {
   } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar as bezerras</b>${esc(e.message)}</div></div>`; }
 }
 
-function formPeso(id) {
-  const a = BASE.porId.get(id), bz = ehCria(a) && !a.data_desmama;
-  abrirModal({
-    titulo: 'Pesar · ' + esc(a.brinco),
-    corpo: `<label>Peso (kg)<input name="peso" id="fpe-peso" type="number" step="0.1" min="0" required value="${a.peso || ''}"></label><label>Data<input name="data" id="fpe-data" type="date" value="${iso(HOJE)}" required></label>
-    ${bz ? `<label>Leite por dia (L)<input name="leite" id="fpe-leite" type="number" step="0.5" min="0" value="${a.leite_aleitamento || ''}"></label>` : ''}
-    ${a.categoria === 'Novilha' && a.situacao_reprodutiva === 'Em recria' ? `<label class="chk full"><input type="checkbox" name="apta" id="fpe-apta"> Liberar para inseminação (Apta p/ IA)</label>` : ''}`,
-    salvar: async f => {
-      const up = { peso: +f.peso }; if (bz && f.leite !== '') up.leite_aleitamento = +f.leite; if (f.apta) up.situacao_reprodutiva = 'Apta p/ IA';
-      await q(sb.from('animais').update(up).eq('id', id));
-      await registrarEvento(id, f.data, 'Pesagem corporal', nf(+f.peso, 1) + ' kg');
-      await depoisDeSalvar(`${a.nome || a.brinco}: ${nf(+f.peso, 1)} kg`);
-    }
-  });
-}
 function formDesmama(id) {
   const a = BASE.porId.get(id), mae = a.mae_id ? BASE.porId.get(a.mae_id) : null;
   abrirModal({
@@ -72,14 +57,14 @@ function formDesmama(id) {
     <div class="hint">O peso com que a cria foi entregue e o peso da vaca na desmama ficam na ficha da mãe, na lista de crias.</div>`,
     salvar: async f => {
       const up = { data_desmama: f.data, leite_aleitamento: 0 };
-      if (f.peso) { up.peso = +f.peso; up.peso_desmama = +f.peso; }
+      if (f.peso) up.peso_desmama = +f.peso;
       if (f.peso_mae) up.peso_mae_desmama = +f.peso_mae;
       await q(sb.from('animais').update(up).eq('id', id));
       await registrarEvento(id, f.data, 'Desmama', f.peso ? nf(+f.peso, 1) + ' kg' : '');
-      if (mae && f.peso_mae) {
-        await q(sb.from('animais').update({ peso: +f.peso_mae }).eq('id', mae.id));
-        await registrarEvento(mae.id, f.data, 'Pesagem corporal', `${nf(+f.peso_mae, 1)} kg na desmama da cria ${a.brinco}` + (f.peso ? ` (cria com ${nf(+f.peso, 1)} kg)` : ''));
-      }
+      const pesos = [];
+      if (f.peso) pesos.push({ animal_id: id, data: f.data, peso: +f.peso, observacao: 'Desmama' });
+      if (mae && f.peso_mae) pesos.push({ animal_id: mae.id, data: f.data, peso: +f.peso_mae, observacao: `Desmama da cria ${a.brinco}` + (f.peso ? ` (cria com ${nf(+f.peso, 1)} kg)` : '') });
+      await registrarPesos(pesos);
       await depoisDeSalvar(`${a.nome || a.brinco} desmamad${a.categoria === 'Bezerro' ? 'o' : 'a'}`);
     }
   });

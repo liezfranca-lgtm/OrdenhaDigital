@@ -20,19 +20,21 @@ let BASE = null;
 // { todas: true } ignora esse filtro (usado na tela de Fazendas, que compara todas).
 async function carregarBase(opts = {}) {
   const desde = iso(addD(HOJE, -420));
-  const [todosAnimais, lotes, touros, tratamentos, pesagens, fazendas] = await Promise.all([
+  const [todosAnimais, lotes, touros, tratamentos, pesagens, fazendas, pesosCorp] = await Promise.all([
     buscarPaginado(() => sb.from('animais').select('*').eq('ativo', true).order('brinco')),
     q(sb.from('lotes').select('*').order('ordem')),
     q(sb.from('touros').select('*').order('codigo')),
     buscarPaginado(() => sb.from('tratamentos').select('*').gte('data_liberacao', iso(addD(HOJE, -120))).order('data_inicio')),
     buscarPaginado(() => sb.from('pesagens_leite').select('animal_id,data,manha,tarde,total,ccs').gte('data', desde).order('data')),
     q(sb.from('fazendas').select('*').order('nome')),
+    buscarPaginado(() => sb.from('pesagens_corporais').select('animal_id,data,peso').order('data')),
   ]);
   const fz = fazendaSelecionada(fazendas);
   const animais = fz && !opts.todas ? todosAnimais.filter(a => a.fazenda_id === fz.id) : todosAnimais;
   const ultPes = new Map(), ultCcs = new Map();
   pesagens.forEach(p => { ultPes.set(p.animal_id, p); if (p.ccs != null) ultCcs.set(p.animal_id, p); });
-  BASE = { animais, todosAnimais, lotes, touros, tratamentos, pesagens, ultPes, ultCcs, fazendas, fazenda: opts.todas ? null : fz,
+  const pesos = new Map(); pesosCorp.forEach(p => { if (!pesos.has(p.animal_id)) pesos.set(p.animal_id, []); pesos.get(p.animal_id).push({ data: p.data, peso: Number(p.peso) }); });
+  BASE = { animais, todosAnimais, pesos, lotes, touros, tratamentos, pesagens, ultPes, ultCcs, fazendas, fazenda: opts.todas ? null : fz,
     porId: new Map(animais.map(a => [a.id, a])), lotePorId: new Map(lotes.map(l => [l.id, l])), fazPorId: new Map(fazendas.map(f => [f.id, f])) };
   montarSeletorFazenda();
   return BASE;
@@ -165,6 +167,7 @@ async function ficha(id) {
     q(sb.from('premios').select('*').eq('animal_id', id).order('data', { ascending: false })),
     a.mae_id ? q(sb.from('animais').select('*').eq('id', a.mae_id)) : Promise.resolve([]),
   ]);
+  const hp = BASE.pesos.get(id) || [];
   const p = prevParto(a), del = delDe(a), prod = prodAtual(a), mae = maeArr[0] || null;
   const dl = [['Sexo', ehMacho(a) ? 'Macho' : 'Fêmea'], ['Raça', a.raca || '—'], ['Categoria', a.categoria], ['Registro', a.registro || 'sem registro'], ['Fazenda', fazendaNome(a) || '—'], ['Procedência', a.procedencia || '—'], ['Lote', loteNome(a)], ['Nascimento', fdy(a.data_nascimento)], ['Idade', idadeTxt(a.data_nascimento)]];
   if (!ehMacho(a) && !ehCria(a)) dl.push(['Lactações', a.numero_lactacao || '—']);
@@ -183,8 +186,9 @@ async function ficha(id) {
   <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${situacao(a)}${emCarencia(a) ? pill('leite em carência', 'bad') : ''}${a.registro ? pill('Registrado', 'ok') : ''}${premios.length ? pill(premios.length + ' prêmio' + (premios.length > 1 ? 's' : ''), 'warn') : ''}</div>
   <dl class="dl">${dl.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
   ${a.observacao ? `<p class="muted" style="margin-top:-6px">${esc(a.observacao)}</p>` : ''}
-  <div class="actions">${ehFemeaAdulta(a) ? `<button class="btn sm" onclick="formEvento(${id})">Evento reprodutivo</button>` : ''}${a.categoria === 'Lactação' ? `<button class="btn sm" onclick="formPesagem(${id})">Pesagem de leite</button>` : ''}<button class="btn sm" onclick="formTratamento(${id})">Tratamento</button><button class="btn sm" onclick="formPremio(${id})">Prêmio</button><button class="btn sm" onclick="formAnimal(${id})">Editar</button><button class="btn sm danger" onclick="formSaida(${id})">Saída do rebanho</button></div>
+  <div class="actions">${ehFemeaAdulta(a) ? `<button class="btn sm" onclick="formEvento(${id})">Evento reprodutivo</button>` : ''}${a.categoria === 'Lactação' ? `<button class="btn sm" onclick="formPesagem(${id})">Pesagem de leite</button>` : ''}<button class="btn sm" onclick="formPeso(${id})">Pesar</button><button class="btn sm" onclick="formTratamento(${id})">Tratamento</button><button class="btn sm" onclick="formPremio(${id})">Prêmio</button><button class="btn sm" onclick="formAnimal(${id})">Editar</button><button class="btn sm danger" onclick="formSaida(${id})">Saída do rebanho</button></div>
   ${a.categoria === 'Lactação' || pontos.length ? `<div class="sec-t">Curva de lactação atual</div><div class="legend" style="margin-bottom:4px"><span><i style="background:var(--accent)"></i>pesagens (L/dia)</span><span><i style="background:var(--muted)"></i>curva esperada</span><span>eixo: dias em lactação</span></div>${curvaChart(pontos, del)}` : ''}
+  <div class="sec-t">Peso</div>${pesoHtml(a, hp)}
   <div class="sec-t">Genealogia</div>${genealogiaHtml(a, mae)}
   ${femea && (crias.length || a.numero_lactacao) ? `<div class="sec-t">Crias (${crias.length})</div>${crias.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Cria</th><th>Nasc.</th><th>Pai</th><th>Registro</th><th class="num">Ao nascer</th><th class="num">Desmama</th><th class="num">Mãe na desmama</th></tr></thead><tbody>${crias.map(c => `<tr ${BASE.porId.get(c.id) ? `class="click" onclick="ficha(${c.id})"` : ''}><td><span class="brinco">${esc(c.brinco)}</span> ${esc(c.nome || '')} ${pill(c.sexo === 'M' ? 'macho' : 'fêmea', c.sexo === 'M' ? 'info' : 'acc')}${c.ativo ? '' : ' ' + pill(esc(c.motivo_saida || 'saiu'), 'mute')}</td><td class="mono">${fd(c.data_nascimento)}</td><td class="muted">${esc(c.pai || '—')}</td><td>${c.registro ? pill(esc(c.registro), 'ok') : pill('sem registro', 'mute')}</td><td class="num mono">${c.peso_nascimento ? nf(c.peso_nascimento) + ' kg' : '—'}</td><td class="num mono">${c.peso_desmama ? nf(c.peso_desmama) + ' kg' : '—'}</td><td class="num mono">${c.peso_mae_desmama ? nf(c.peso_mae_desmama) + ' kg' : '—'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nenhuma cria cadastrada no sistema. Partos anteriores aparecem no histórico.</div>'}` : ''}
   ${cobricoes.length ? `<div class="sec-t">Cobrições</div><table class="tbl"><tbody>${cobricoes.map(e => `<tr><td class="mono">${fd(e.data)}${e.data_fim ? ' a ' + fd(e.data_fim) : ''}</td><td><b>${esc(e.tipo)}</b><br><small class="muted">${esc(e.detalhe || '')}</small></td></tr>`).join('')}</tbody></table>` : ''}
@@ -214,7 +218,7 @@ function formAnimal(id, catPadrao) {
     <label>Nascimento<input name="data_nascimento" id="fa-nasc" type="date" value="${v('data_nascimento')}"></label><label>Lote<select name="lote_id" id="fa-lote">${optLotes(a ? a.lote_id : '')}</select></label>
     <label>Fazenda<select name="fazenda_id" id="fa-faz">${optFazendas(a ? a.fazenda_id : (BASE.fazenda ? BASE.fazenda.id : (BASE.fazendas.filter(f => f.ativo).length === 1 ? BASE.fazendas.find(f => f.ativo).id : '')))}</select></label>
     <label>Procedência<input name="procedencia" id="fa-proc" list="dl-proc" value="${v('procedencia')}" placeholder="Ex.: nascida na fazenda, comprada de…"><datalist id="dl-proc"><option>Nascida na fazenda</option><option>Comprada</option></datalist></label>
-    <label>Peso atual (kg)<input name="peso" id="fa-peso" type="number" step="0.1" min="0" value="${v('peso')}"></label><label>Peso ao nascer (kg)<input name="peso_nascimento" id="fa-pnasc" type="number" step="0.1" min="0" value="${v('peso_nascimento')}"></label>
+    ${a ? `<label>Peso atual<input id="fa-peso" value="${a.peso != null ? nf(a.peso, 1) + ' kg · use Pesar na ficha' : 'sem pesagem · use Pesar na ficha'}" readonly></label>` : `<label>Peso atual (kg)<input name="peso" id="fa-peso" type="number" step="0.1" min="0"></label>`}<label>Peso ao nascer (kg)<input name="peso_nascimento" id="fa-pnasc" type="number" step="0.1" min="0" value="${v('peso_nascimento')}"></label>
     <label class="full">Observação<input name="observacao" id="fa-obs" value="${v('observacao')}"></label>
     <div class="sec-t full">Genealogia</div>
     <label>Pai (touro)<input name="pai" id="fa-pai" list="dl-touros" value="${v('pai')}"></label><label>Registro do pai<input name="pai_registro" id="fa-pai-reg" value="${v('pai_registro')}"></label>
@@ -240,7 +244,7 @@ function formAnimal(id, catPadrao) {
         mae_id: f.mae_id ? +f.mae_id : null, pai: t(f.pai), pai_registro: t(f.pai_registro), avo_paterno: t(f.avo_paterno), avo_paterna: t(f.avo_paterna),
         mae_externa: f.mae_id ? null : t(f.mae_externa), mae_registro: f.mae_id ? null : t(f.mae_registro),
         avo_materno: f.mae_id ? null : t(f.avo_materno), avo_materna: f.mae_id ? null : t(f.avo_materna),
-        peso: f.peso ? +f.peso : null, peso_nascimento: f.peso_nascimento ? +f.peso_nascimento : null, observacao: t(f.observacao),
+        peso_nascimento: f.peso_nascimento ? +f.peso_nascimento : null, observacao: t(f.observacao),
       };
       if (f.categoria === 'Lactação' || f.categoria === 'Seca') { reg.numero_lactacao = +f.numero_lactacao || 0; reg.data_ultimo_parto = f.data_ultimo_parto || null; }
       if (!FEMEAS_ADULTAS.includes(f.categoria)) { reg.situacao_reprodutiva = 'Em recria'; }
@@ -254,10 +258,15 @@ function formAnimal(id, catPadrao) {
       if (a) {
         await q(sb.from('animais').update(reg).eq('id', id));
       } else {
+        if (f.peso) reg.peso = +f.peso;
         if (!reg.lote_id) { const L = lotesTipo('lactacao'); const l = loteSugerido({ ...reg, id: 0 }) || (reg.categoria === 'Lactação' ? L[1] || L[0] : null); if (l) reg.lote_id = l.id; }
         if (ehCria(reg)) reg.leite_aleitamento = 6;
         const novo = await q(sb.from('animais').insert(reg).select().single());
         await registrarEvento(novo.id, iso(HOJE), 'Cadastro', 'Entrada no sistema' + (reg.procedencia ? ' · ' + reg.procedencia : ''));
+        const iniciais = [];
+        if (reg.peso_nascimento && reg.data_nascimento) iniciais.push({ animal_id: novo.id, data: reg.data_nascimento, peso: reg.peso_nascimento, observacao: 'Ao nascer' });
+        if (f.peso && reg.data_nascimento !== iso(HOJE)) iniciais.push({ animal_id: novo.id, data: iso(HOJE), peso: +f.peso, observacao: 'Cadastro' });
+        if (iniciais.length) await q(sb.from('pesagens_corporais').upsert(iniciais, { onConflict: 'animal_id,data' }));
       }
       await depoisDeSalvar(a ? 'Dados atualizados' : `${reg.nome || reg.brinco} cadastrad${reg.sexo === 'M' ? 'o' : 'a'} no rebanho`);
     }
@@ -337,6 +346,7 @@ function formEvento(id) {
           if (!f.brinco_cria.trim()) throw new Error('informe o brinco da bezerra.');
           const lb = lotesTipo('bezerras')[0];
           const b = await q(sb.from('animais').insert({ brinco: f.brinco_cria.trim(), nome: f.nome_cria.trim() || null, sexo: macho ? 'M' : 'F', raca: a.raca, categoria: macho ? 'Bezerro' : 'Bezerra', data_nascimento: d, mae_id: a.id, pai, fazenda_id: a.fazenda_id, procedencia: 'Nascid' + (macho ? 'o' : 'a') + ' na fazenda', registro: f.registro_cria.trim() || null, peso_nascimento: f.peso_cria ? +f.peso_cria : null, peso: f.peso_cria ? +f.peso_cria : null, lote_id: lb ? lb.id : null, situacao_reprodutiva: 'Em recria', colostro_ok: !!f.colostro, leite_aleitamento: 6 }).select().single());
+          if (f.peso_cria) await q(sb.from('pesagens_corporais').insert({ animal_id: b.id, data: d, peso: +f.peso_cria, observacao: 'Ao nascer' }));
           await registrarEvento(b.id, d, 'Nascimento', `${macho ? 'Filho' : 'Filha'} de ${a.brinco}` + (pai ? ' e ' + pai : '') + (f.peso_cria ? ' · ' + f.peso_cria + ' kg' : '') + (f.colostro ? ' · colostro ok' : ' · sem registro de colostro'));
           det += ` · ${macho ? 'bezerro' : 'bezerra'} ${b.brinco}`;
         }
@@ -401,6 +411,91 @@ function formTratamento(id) {
       await depoisDeSalvar('Tratamento registrado. Leite liberado em ' + fdy(addD(pd(reg.data_inicio), reg.dias_aplicacao + reg.carencia_leite)));
     }
   });
+}
+
+// ---------- peso corporal ----------
+// GMD (ganho médio diário) em g/dia entre duas pesagens
+const gmd = (p1, p2) => { const d = dd(pd(p2.data), pd(p1.data)); return d > 0 ? (p2.peso - p1.peso) / d * 1000 : null; };
+// Grava pesagens (uma por animal por dia), atualiza o peso atual quando é a mais recente e deixa no histórico
+async function registrarPesos(regs) {
+  if (!regs.length) return;
+  await q(sb.from('pesagens_corporais').upsert(regs, { onConflict: 'animal_id,data' }));
+  for (const r of regs) {
+    const hist = BASE.pesos.get(r.animal_id) || [], ult = hist[hist.length - 1];
+    if (!ult || r.data >= ult.data) await q(sb.from('animais').update({ peso: r.peso }).eq('id', r.animal_id));
+  }
+  await q(sb.from('eventos').insert(regs.map(r => ({ animal_id: r.animal_id, data: r.data, tipo: 'Pesagem corporal', detalhe: nf(r.peso, 1) + ' kg' + (r.observacao ? ' · ' + r.observacao : '') }))));
+}
+function pesoHtml(a, hp) {
+  if (!hp.length) return `<div class="empty">Nenhuma pesagem registrada. Use o botão Pesar.</div>`;
+  const ult = hp[hp.length - 1], pen = hp[hp.length - 2], ini = hp[0];
+  const g1 = pen ? gmd(pen, ult) : null, gt = hp.length > 1 ? gmd(ini, ult) : null;
+  const cor = g => g == null ? '' : g < 0 ? 'down' : 'up';
+  return `<div class="kpis" style="margin-bottom:8px">
+    ${kpi('Último peso', nf(ult.peso, 1), fdy(ult.data), 'kg')}
+    ${kpi('Ganho recente', g1 != null ? `<span class="${cor(g1)}">${nf(g1)}</span>` : '—', pen ? 'desde ' + fd(pen.data) : 'precisa de 2 pesagens', g1 != null ? 'g/dia' : '')}
+    ${kpi('Ganho no período', gt != null ? `<span class="${cor(gt)}">${nf(gt)}</span>` : '—', hp.length > 1 ? `em ${dd(pd(ult.data), pd(ini.data))} dias` : '', gt != null ? 'g/dia' : '')}
+  </div>${hp.length > 1 ? lineChart(hp.map(p => ({ d: pd(p.data), v: p.peso })), { unit: 'kg', label: 'Evolução do peso', media: false }) : ''}`;
+}
+function formPeso(id) {
+  const a = BASE.porId.get(id), hp = BASE.pesos.get(id) || [], ult = hp[hp.length - 1];
+  const cria = ehCria(a) && !a.data_desmama, novilhaRecria = a.categoria === 'Novilha' && a.situacao_reprodutiva === 'Em recria';
+  abrirModal({
+    titulo: 'Pesar · ' + esc(nomeCurto(a)),
+    corpo: `<label>Peso (kg)<input name="peso" id="fpe-peso" type="number" step="0.1" min="0" required oninput="previaGmd()"></label><label>Data<input name="data" id="fpe-data" type="date" value="${iso(HOJE)}" required oninput="previaGmd()"></label>
+    ${cria ? `<label>Leite por dia (L)<input name="leite" id="fpe-leite" type="number" step="0.5" min="0" value="${a.leite_aleitamento || ''}"></label>` : ''}
+    <label class="${cria ? '' : 'full'}">Observação<input name="obs" id="fpe-obs" placeholder="opcional"></label>
+    ${novilhaRecria ? `<label class="chk full"><input type="checkbox" name="apta" id="fpe-apta"> Liberar para inseminação (Apta p/ IA)</label>` : ''}
+    <div class="hint" id="fpe-hint">${ult ? `Última pesagem: ${nf(ult.peso, 1)} kg em ${fdy(ult.data)}.` : 'Primeira pesagem deste animal.'}</div>`,
+    salvar: async f => {
+      await registrarPesos([{ animal_id: id, data: f.data, peso: +f.peso, observacao: f.obs.trim() || null }]);
+      const up = {};
+      if (cria && f.leite != null && f.leite !== '') up.leite_aleitamento = +f.leite;
+      if (f.apta) up.situacao_reprodutiva = 'Apta p/ IA';
+      if (Object.keys(up).length) await q(sb.from('animais').update(up).eq('id', id));
+      await depoisDeSalvar(`${a.nome || a.brinco}: ${nf(+f.peso, 1)} kg`);
+    }
+  });
+  window.previaGmd = () => {
+    const v = document.getElementById('fpe-peso').value, d = document.getElementById('fpe-data').value, h = document.getElementById('fpe-hint');
+    if (!ult || !v || !d) return;
+    const g = gmd(ult, { data: d, peso: +v });
+    h.innerHTML = `Última pesagem: ${nf(ult.peso, 1)} kg em ${fdy(ult.data)}.` + (g != null ? ` Ganho de <b class="${g < 0 ? 'down' : 'up'}">${nf(g)} g/dia</b> (${g >= 0 ? '+' : ''}${nf(+v - ult.peso, 1)} kg).` : '');
+  };
+}
+// Pesagem de vários animais de uma vez (dia da balança)
+function formPesoGrupo(grupoInicial) {
+  const grupos = [['todos', 'Todos os animais']];
+  BASE.lotes.filter(l => l.ativo && BASE.animais.some(a => a.lote_id === l.id)).forEach(l => grupos.push(['lote:' + l.id, 'Lote · ' + l.nome]));
+  [...CATEGORIAS, ...CAT_MACHOS].filter(c => BASE.animais.some(a => a.categoria === c)).forEach(c => grupos.push(['cat:' + c, 'Categoria · ' + c]));
+  const ini = grupos.some(g => g[0] === grupoInicial) ? grupoInicial : 'todos';
+  abrirModal({
+    titulo: 'Pesagem em grupo', wide: true, textoSalvar: 'Salvar pesos',
+    corpo: `<label>Grupo<select name="grupo" id="fpg-grupo" onchange="linhasPesoGrupo(this.value)">${grupos.map(([v, t]) => `<option value="${v}" ${v === ini ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+    <label>Data da pesagem<input name="data" id="fpg-data" type="date" value="${iso(HOJE)}" required></label>
+    <div class="full scroll" id="fpg-tab"></div>
+    <div class="hint">Preencha só os animais pesados. Linha em branco é ignorada. O ganho por dia aparece conforme você digita.</div>`,
+    salvar: async f => {
+      const regs = Object.keys(f).filter(k => k.startsWith('p_') && f[k] !== '').map(k => ({ animal_id: +k.slice(2), data: f.data, peso: +f[k], observacao: null }));
+      if (!regs.length) throw new Error('nenhum peso preenchido.');
+      await registrarPesos(regs);
+      await depoisDeSalvar(`${regs.length} pesagens salvas`);
+    }
+  });
+  linhasPesoGrupo(ini);
+}
+function linhasPesoGrupo(g) {
+  const [tipo, val] = g.split(':');
+  const lista = BASE.animais.filter(a => tipo === 'todos' || (tipo === 'lote' ? a.lote_id == val : a.categoria === val))
+    .sort((x, y) => x.brinco.localeCompare(y.brinco, 'pt-BR', { numeric: true }));
+  document.getElementById('fpg-tab').innerHTML = `<table class="tbl"><thead><tr><th>Animal</th><th>Categoria</th><th class="num">Idade</th><th class="num">Último peso</th><th>Peso novo (kg)</th><th class="num">Ganho</th></tr></thead><tbody>
+  ${lista.map(a => { const hp = BASE.pesos.get(a.id) || [], u = hp[hp.length - 1]; return `<tr><td>${animLink(a)}</td><td class="muted">${a.categoria}</td><td class="num mono muted">${idadeTxt(a.data_nascimento)}</td><td class="num mono">${u ? nf(u.peso, 1) + ' kg <small class="muted">' + fd(u.data) + '</small>' : '—'}</td><td><input name="p_${a.id}" id="p_${a.id}" type="number" step="0.1" min="0" oninput="ganhoLinha(${a.id}, this.value)"></td><td class="num mono" id="g_${a.id}"></td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Nenhum animal nesse grupo.</td></tr>'}</tbody></table>`;
+}
+function ganhoLinha(id, v) {
+  const hp = BASE.pesos.get(id) || [], u = hp[hp.length - 1], el = document.getElementById('g_' + id), d = document.getElementById('fpg-data').value;
+  if (!u || !v) { el.textContent = ''; return; }
+  const g = gmd(u, { data: d, peso: +v });
+  el.innerHTML = g != null ? `<span class="${g < 0 ? 'down' : 'up'}">${nf(g)} g/dia</span>` : '';
 }
 
 // ---------- prêmios ----------
