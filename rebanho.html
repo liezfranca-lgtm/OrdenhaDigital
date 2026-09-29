@@ -15,30 +15,53 @@
 <script src="layout.js"></script>
 <script src="animal.js"></script>
 <script>
-let filtroCat = 'Todos', busca = '';
+let filtroCat = 'Todos', busca = '', filtroProp = '';
 (async () => { if (!await iniciarPagina('rebanho')) return; window.aoSalvar = carregar; carregar(); })();
 
 async function carregar() {
   const main = document.getElementById('main');
   try {
     await carregarBase();
-    main.innerHTML = head('Rebanho', 'Cadastro de todos os animais ativos. Clique numa linha para abrir a ficha com histórico, curva de lactação e ações.', `<button class="btn pri" onclick="formAnimal()">Cadastrar animal</button>`) +
+    const props = propriedades();
+    main.innerHTML = head('Rebanho', 'Relação de todos os animais ativos. Clique numa linha para abrir a ficha com genealogia, crias, prêmios, histórico e curva de lactação.',
+      `<button class="btn" onclick="exportarCSV()">Exportar relação (planilha)</button><button class="btn pri" onclick="formAnimal()">Cadastrar animal</button>`) +
       `<div class="toolbar"><div class="chips" id="chips"></div>
-       <input class="search" id="busca" type="search" placeholder="Buscar por brinco, nome ou raça" value="${esc(busca)}" oninput="busca=this.value;tabela()"></div>
+       <div class="actions">${props.length ? `<select class="search" id="fprop" onchange="filtroProp=this.value;tabela()"><option value="">Todas as propriedades</option>${props.map(p => `<option ${p === filtroProp ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>` : ''}
+       <input class="search" id="busca" type="search" placeholder="Buscar por brinco, nome, raça ou registro" value="${esc(busca)}" oninput="busca=this.value;tabela()"></div></div>
        <section class="card"><div class="scroll" id="tab"></div></section>`;
     tabela();
     const abrir = +new URLSearchParams(location.search).get('animal');
     if (abrir && BASE.porId.get(abrir)) ficha(abrir);
   } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar o rebanho</b>${esc(e.message)}</div></div>`; }
 }
-function tabela() {
-  const A = BASE.animais;
-  document.getElementById('chips').innerHTML = ['Todos', ...CATEGORIAS].map(c => `<button class="chip ${c === filtroCat ? 'on' : ''}" onclick="filtroCat='${c}';tabela()">${c}<em>${c === 'Todos' ? A.length : A.filter(a => a.categoria === c).length}</em></button>`).join('');
+function filtrados() {
   const t = busca.toLowerCase();
-  const rows = A.filter(a => (filtroCat === 'Todos' || a.categoria === filtroCat) && (!t || [a.brinco, a.nome, a.raca].join(' ').toLowerCase().includes(t)));
+  return BASE.animais.filter(a => (filtroCat === 'Todos' || (filtroCat === 'Machos' ? ehMacho(a) : a.categoria === filtroCat)) && (!filtroProp || a.propriedade === filtroProp)
+    && (!t || [a.brinco, a.nome, a.raca, a.registro].join(' ').toLowerCase().includes(t)));
+}
+function tabela() {
+  const A = BASE.animais, nMachos = A.filter(ehMacho).length, variasProps = propriedades().length > 1;
+  document.getElementById('chips').innerHTML = ['Todos', ...CATEGORIAS, ...(nMachos ? ['Machos'] : [])].map(c => `<button class="chip ${c === filtroCat ? 'on' : ''}" onclick="filtroCat='${c}';tabela()">${c}<em>${c === 'Todos' ? A.length : c === 'Machos' ? nMachos : A.filter(a => a.categoria === c).length}</em></button>`).join('');
   if (!A.length) { document.getElementById('tab').innerHTML = `<div class="empty-big"><b>Nenhum animal cadastrado</b>Use o botão "Cadastrar animal" para começar.</div>`; return; }
-  document.getElementById('tab').innerHTML = `<table class="tbl"><thead><tr><th>Brinco</th><th>Nome</th><th>Raça</th><th>Categoria</th><th>Lote</th><th>Idade</th><th class="num">Lact.</th><th class="num">DEL</th><th class="num">L/dia</th><th>Situação</th><th class="num">CCS</th></tr></thead><tbody>
-  ${rows.map(a => { const p = prodAtual(a), c = ccsAtual(a); return `<tr class="click" onclick="ficha(${a.id})"><td><span class="brinco">${esc(a.brinco)}</span></td><td><b>${esc(a.nome || '')}</b></td><td class="muted">${esc(a.raca || '—')}</td><td>${a.categoria}</td><td class="muted">${esc(loteNome(a).split(' · ')[0])}</td><td class="muted">${idadeTxt(a.data_nascimento)}</td><td class="num mono">${a.numero_lactacao || '—'}</td><td class="num mono">${delDe(a) ?? '—'}</td><td class="num mono">${p != null ? nf(p, 1) : '—'}${emCarencia(a) ? ' ' + pill('carência', 'bad') : ''}</td><td>${situacao(a)}</td><td class="num mono ${c > 500 ? 'down' : ''}">${c != null ? nf(c) : '—'}</td></tr>`; }).join('') || `<tr><td colspan="11" class="empty">Nenhum animal encontrado com esse filtro.</td></tr>`}</tbody></table>`;
+  const rows = filtrados();
+  document.getElementById('tab').innerHTML = `<table class="tbl"><thead><tr><th>Brinco</th><th>Nome</th><th>Sexo</th><th>Raça</th><th>Registro</th><th>Categoria</th><th>Lote</th><th>Idade</th><th class="num">Lact.</th><th class="num">DEL</th><th class="num">L/dia</th><th>Situação</th><th class="num">CCS</th></tr></thead><tbody>
+  ${rows.map(a => { const p = prodAtual(a), c = ccsAtual(a); return `<tr class="click" onclick="ficha(${a.id})"><td><span class="brinco">${esc(a.brinco)}</span></td><td><b>${esc(a.nome || '')}</b>${a.propriedade && variasProps && !filtroProp ? `<br><small class="muted">${esc(a.propriedade)}</small>` : ''}</td><td class="muted">${ehMacho(a) ? 'M' : 'F'}</td><td class="muted">${esc(a.raca || '—')}</td><td class="mono muted">${esc(a.registro || '—')}</td><td>${a.categoria}</td><td class="muted">${esc(loteNome(a).split(' · ')[0])}</td><td class="muted">${idadeTxt(a.data_nascimento)}</td><td class="num mono">${a.numero_lactacao || '—'}</td><td class="num mono">${delDe(a) ?? '—'}</td><td class="num mono">${p != null ? nf(p, 1) : '—'}${emCarencia(a) ? ' ' + pill('carência', 'bad') : ''}</td><td>${situacao(a)}</td><td class="num mono ${c > 500 ? 'down' : ''}">${c != null ? nf(c) : '—'}</td></tr>`; }).join('') || `<tr><td colspan="13" class="empty">Nenhum animal encontrado com esse filtro.</td></tr>`}</tbody></table>`;
+}
+// Relação de animais em CSV (abre no Excel), respeitando os filtros da tela
+function exportarCSV() {
+  const mae = a => a.mae_id ? BASE.porId.get(a.mae_id) : null;
+  const cols = [['Brinco', a => a.brinco], ['Nome', a => a.nome], ['Sexo', a => ehMacho(a) ? 'Macho' : 'Fêmea'], ['Raça', a => a.raca], ['Registro', a => a.registro], ['Categoria', a => a.categoria],
+    ['Nascimento', a => a.data_nascimento ? fdy(a.data_nascimento) : ''], ['Idade', a => idadeTxt(a.data_nascimento)], ['Propriedade', a => a.propriedade], ['Procedência', a => a.procedencia], ['Lote', a => loteNome(a)],
+    ['Pai', a => a.pai], ['Registro do pai', a => a.pai_registro], ['Mãe', a => mae(a) ? nomeCurto(mae(a)) : a.mae_externa], ['Registro da mãe', a => mae(a) ? mae(a).registro : a.mae_registro],
+    ['Lactações', a => a.numero_lactacao], ['Último parto', a => a.data_ultimo_parto ? fdy(a.data_ultimo_parto) : ''], ['Situação reprodutiva', a => a.situacao_reprodutiva], ['Última cobrição', a => a.data_ultima_ia ? fdy(a.data_ultima_ia) : ''], ['Touro', a => a.touro_ultima_ia],
+    ['Parto previsto', a => prevParto(a) ? fdy(prevParto(a)) : ''], ['Leite (L/dia)', a => prodAtual(a) != null ? nf(prodAtual(a), 1) : ''], ['Peso (kg)', a => a.peso]];
+  const cel = v => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lista = filtrados();
+  const csv = '﻿' + [cols.map(c => c[0]).join(';'), ...lista.map(a => cols.map(c => cel(c[1](a))).join(';'))].join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const l = document.createElement('a'); l.href = url; l.download = `relacao-animais-${iso(HOJE)}.csv`; document.body.appendChild(l); l.click(); l.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast(lista.length + ' animais exportados');
 }
 </script>
 </body>

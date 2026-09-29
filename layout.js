@@ -13,6 +13,7 @@ const MENU = [
   ['painel', 'Painel'],
   ['rebanho', 'Rebanho'],
   ['producao', 'Produção de leite'],
+  ['ranking', 'Ranking de produção'],
   ['reproducao', 'Reprodução'],
   ['sanidade', 'Sanidade'],
   ['bezerras', 'Bezerras e novilhas'],

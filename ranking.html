@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Ranking de produção</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script src="animal.js"></script>
+<script>
+const METRICAS = {
+  atual: { nome: 'Produção atual', un: 'L/dia', dec: 1, desc: 'última pesagem de cada vaca em lactação' },
+  media90: { nome: 'Média dos últimos 90 dias', un: 'L/dia', dec: 1, desc: 'média das pesagens dos últimos 90 dias' },
+  total: { nome: 'Total na lactação', un: 'L', dec: 0, desc: 'litros desde o parto (método de Fleischmann)' },
+  proj305: { nome: 'Projeção em 305 dias', un: 'L', dec: 0, desc: 'lactação padrão projetada pela curva de cada vaca' },
+};
+const CORES = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c5)', 'var(--c6)'];
+let F = { metrica: 'atual', lote: '', raca: '', ordem: '', top: '10' }, LINHAS = [];
+try { Object.assign(F, JSON.parse(localStorage.getItem('ordenha-ranking') || '{}')); } catch (e) {}
+(async () => { if (!await iniciarPagina('ranking')) return; window.aoSalvar = carregar; carregar(); })();
+
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    await carregarBase();
+    const desde90 = iso(addD(HOJE, -90));
+    LINHAS = BASE.animais.filter(a => (a.categoria === 'Lactação' || a.categoria === 'Seca') && a.data_ultimo_parto).map(a => {
+      const pes = BASE.pesagens.filter(p => p.animal_id === a.id && p.data >= a.data_ultimo_parto);
+      const lac = producaoLactacao(a, BASE.pesagens);
+      const ult = pes[pes.length - 1], ant = pes[pes.length - 2];
+      const p90 = pes.filter(p => p.data >= desde90);
+      return { a, lac, atual: prodAtual(a), anterior: ant && ult ? Number(ult.total) - Number(ant.total) : null,
+        media90: a.categoria === 'Lactação' && p90.length ? p90.reduce((s, p) => s + Number(p.total), 0) / p90.length : null,
+        total: lac ? lac.total : null, proj305: lac ? lac.proj305 : null };
+    });
+    desenhar();
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar o ranking</b>${esc(e.message)}</div></div>`; }
+}
+function setF(k, v) { F[k] = v; try { localStorage.setItem('ordenha-ranking', JSON.stringify(F)); } catch (e) {} desenhar(); }
+
+function desenhar() {
+  const M = METRICAS[F.metrica], main = document.getElementById('main');
+  const racas = [...new Set(LINHAS.map(r => r.a.raca).filter(Boolean))].sort();
+  const lotesL = BASE.lotes.filter(l => LINHAS.some(r => r.a.lote_id === l.id));
+  const filtradas = LINHAS.filter(r => r[F.metrica] != null
+    && (!F.lote || r.a.lote_id == F.lote) && (!F.raca || r.a.raca === F.raca)
+    && (!F.ordem || (F.ordem === '1' ? r.a.numero_lactacao === 1 : r.a.numero_lactacao > 1)))
+    .sort((x, y) => y[F.metrica] - x[F.metrica]);
+  const topN = F.top === 'todas' ? filtradas : filtradas.slice(0, +F.top);
+  const vals = filtradas.map(r => r[F.metrica]), media = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+  const v = x => nf(x, M.dec);
+  const sel = (id, k, opts) => `<select class="search" id="${id}" onchange="setF('${k}',this.value)">${opts.map(([val, t]) => `<option value="${val}" ${String(F[k]) === String(val) ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  const filtros = `<div class="toolbar"><div class="chips">${Object.entries(METRICAS).map(([k, m]) => `<button class="chip ${F.metrica === k ? 'on' : ''}" onclick="setF('metrica','${k}')">${m.nome}</button>`).join('')}</div>
+    <div class="actions">${sel('f-lote', 'lote', [['', 'Todos os lotes'], ...lotesL.map(l => [l.id, l.nome.split(' · ')[0]])])}${sel('f-raca', 'raca', [['', 'Todas as raças'], ...racas.map(r => [r, r])])}${sel('f-ordem', 'ordem', [['', 'Todas as lactações'], ['1', 'Primíparas (1ª)'], ['2', 'Multíparas (2ª+)']])}${sel('f-top', 'top', [['10', 'Top 10'], ['20', 'Top 20'], ['todas', 'Todas']])}</div></div>`;
+
+  if (!filtradas.length) {
+    main.innerHTML = head('Ranking de produção', 'As vacas que mais dão leite, pelas pesagens do controle leiteiro.') + filtros +
+      `<section class="card"><div class="empty-big"><b>Nenhuma vaca com pesagem para esse filtro</b>Lance o controle leiteiro em Produção de leite para montar o ranking.</div></section>`;
+    return;
+  }
+  const top10pct = filtradas.slice(0, Math.max(1, Math.round(filtradas.length * .1)));
+  const m10 = top10pct.reduce((s, r) => s + r[F.metrica], 0) / top10pct.length;
+  const pod = filtradas.slice(0, 3);
+  const ordemPod = pod.length === 3 ? [pod[1], pod[0], pod[2]] : pod;
+
+  main.innerHTML = head('Ranking de produção', `As vacas que mais dão leite · ${M.desc}.`) + filtros +
+  `<div class="kpis">
+    ${kpi('Campeã', esc(pod[0].a.nome || pod[0].a.brinco), `${v(pod[0][F.metrica])} ${M.un} · brinco ${esc(pod[0].a.brinco)}`)}
+    ${kpi('Média do grupo', v(media), `${filtradas.length} vacas no ranking`, M.un)}
+    ${kpi('Top 10% produz', media ? '+' + nf((m10 / media - 1) * 100) + '%' : '—', `média de ${v(m10)} ${M.un} contra ${v(media)}`)}
+    ${kpi('Diferença 1ª x última', v(filtradas[0][F.metrica] - filtradas[filtradas.length - 1][F.metrica]), 'entre a maior e a menor produção', M.un)}
+  </div>
+  <div class="podio">${ordemPod.map(r => { const pos = pod.indexOf(r) + 1; return `<div class="pod p${pos}" onclick="ficha(${r.a.id})">
+    <div class="top"><span class="med">${pos}º</span><span class="brinco">${esc(r.a.brinco)}</span></div>
+    <h3>${esc(r.a.nome || 'Sem nome')}</h3>
+    <div class="big">${v(r[F.metrica])}<small> ${M.un}</small></div>
+    <small class="muted">${esc(r.a.raca || '')} · ${r.a.numero_lactacao}ª lactação${delDe(r.a) != null ? ' · DEL ' + delDe(r.a) : ''}</small>
+    ${sparkline(r)}</div>`; }).join('')}</div>
+  <section class="card mb"><header><h2>${F.top === 'todas' ? 'Todas as vacas' : 'Top ' + F.top} · ${M.nome.toLowerCase()}</h2><span class="legend"><span><i style="background:var(--gold)"></i>1º</span><span><i style="background:var(--silver)"></i>2º</span><span><i style="background:var(--bronze)"></i>3º</span><span><i style="background:var(--warn)"></i>média do grupo</span></span></header>${barrasRanking(topN, media, M)}</section>
+  <div class="grid g2e">
+    <section class="card"><header><h2>Curvas de lactação das 5 melhores</h2><span>litros por dia × dias em lactação</span></header>${curvasTop(filtradas.slice(0, 5))}</section>
+    <section class="card"><header><h2>Distribuição do rebanho</h2><span>quantas vacas em cada faixa de ${M.un}</span></header>${histograma(vals, M)}</section>
+  </div>
+  <div class="grid g2e">
+    <section class="card"><header><h2>Média por raça</h2><span>${M.un}</span></header>${barrasGrupo(agrupar(filtradas, r => r.a.raca || 'Sem raça'), M)}</section>
+    <section class="card"><header><h2>Média por ordem de lactação</h2><span>${M.un}</span></header>${barrasGrupo(agrupar(filtradas, r => r.a.numero_lactacao >= 4 ? '4ª ou mais' : r.a.numero_lactacao + 'ª lactação'), M)}</section>
+  </div>
+  <section class="card"><header><h2>Classificação completa</h2><span>clique para abrir a ficha</span></header><div class="scroll"><table class="tbl"><thead><tr><th>#</th><th>Vaca</th><th>Lote</th><th>Raça</th><th class="num">Lact.</th><th class="num">DEL</th><th class="num">Atual L/dia</th><th class="num">Última variação</th><th class="num">Média 90 d</th><th class="num">Total lactação</th><th class="num">Proj. 305 d</th><th class="num">CCS</th></tr></thead><tbody>
+  ${filtradas.map((r, i) => { const c = ccsAtual(r.a); return `<tr class="click" onclick="ficha(${r.a.id})"><td><span class="rk-pos ${i < 3 ? 'p' + (i + 1) : ''}">${i + 1}</span></td><td>${animLink(r.a)}</td><td class="muted">${esc(loteNome(r.a).split(' · ')[0])}</td><td class="muted">${esc(r.a.raca || '—')}</td><td class="num mono">${r.a.numero_lactacao}</td><td class="num mono">${delDe(r.a) ?? '—'}</td><td class="num mono ${F.metrica === 'atual' ? '' : 'muted'}"><b>${r.atual != null ? nf(r.atual, 1) : '—'}</b></td><td class="num mono ${r.anterior > 0 ? 'up' : r.anterior < 0 ? 'down' : 'muted'}">${r.anterior != null ? (r.anterior > 0 ? '▲ ' : r.anterior < 0 ? '▼ ' : '') + nf(Math.abs(r.anterior), 1) : '—'}</td><td class="num mono">${r.media90 != null ? nf(r.media90, 1) : '—'}</td><td class="num mono">${r.total != null ? nf(r.total) : '—'}</td><td class="num mono">${r.proj305 != null ? nf(r.proj305) : '—'}</td><td class="num mono ${c > 500 ? 'down' : ''}">${c != null ? nf(c) : '—'}</td></tr>`; }).join('')}</tbody></table></div></section>`;
+}
+
+function agrupar(rows, chave) {
+  const g = {}; rows.forEach(r => { const k = chave(r); (g[k] = g[k] || []).push(r[F.metrica]); });
+  return Object.entries(g).map(([k, arr]) => ({ k, n: arr.length, m: arr.reduce((s, v) => s + v, 0) / arr.length })).sort((a, b) => b.m - a.m);
+}
+function sparkline(r) {
+  const ps = r.lac ? r.lac.pontos : []; if (ps.length < 2) return '';
+  const W = 220, H = 44, mx = Math.max(...ps.map(p => p.l)) * 1.1, maxD = Math.max(330, ps[ps.length - 1].d);
+  const x = d => 2 + d / maxD * (W - 4), y = l => H - 3 - l / mx * (H - 6);
+  const line = ps.map((p, i) => `${i ? 'L' : 'M'}${x(p.d).toFixed(1)},${y(p.l).toFixed(1)}`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" style="margin-top:4px" aria-hidden="true"><path d="${line}L${x(ps[ps.length - 1].d)},${H}L${x(ps[0].d)},${H}Z" style="fill:var(--m);opacity:.14"/><path d="${line}" style="fill:none;stroke:var(--m);stroke-width:2;stroke-linejoin:round"/><circle cx="${x(ps[ps.length - 1].d)}" cy="${y(ps[ps.length - 1].l)}" r="3" style="fill:var(--m)"/></svg>`;
+}
+// Barras horizontais com nome à esquerda, valor na ponta e a média do grupo marcada
+function barrasRanking(rows, media, M) {
+  const rowH = 30, pl = 170, pr = 64, W = 760, H = rows.length * rowH + 26;
+  const mx = Math.max(...rows.map(r => r[F.metrica]), media) * 1.02, x = val => pl + val / mx * (W - pl - pr);
+  const medal = ['var(--gold)', 'var(--silver)', 'var(--bronze)'];
+  let g = '';
+  rows.forEach((r, i) => {
+    const y = i * rowH + 4, val = r[F.metrica], nome = (r.a.brinco + ' ' + (r.a.nome || '')).trim();
+    g += `<g style="cursor:pointer" onclick="ficha(${r.a.id})"><text class="ch-tick" x="4" y="${y + 17}">${i + 1}º</text><text class="ch-lbl" x="30" y="${y + 17}">${esc(nome.length > 20 ? nome.slice(0, 19) + '…' : nome)}</text>
+      <rect x="${pl}" y="${y + 4}" width="${W - pl - pr}" height="${rowH - 10}" rx="5" style="fill:var(--sunk)"/>
+      <rect x="${pl}" y="${y + 4}" width="${Math.max(2, x(val) - pl)}" height="${rowH - 10}" rx="5" style="fill:${i < 3 ? medal[i] : 'var(--accent)'};opacity:${i < 3 ? 1 : Math.max(.45, 1 - i * .03)}"/>
+      <text class="ch-val" x="${x(val) + 6}" y="${y + 18}">${nf(val, M.dec)}</text></g>`;
+  });
+  g += `<line class="ch-media" x1="${x(media)}" x2="${x(media)}" y1="0" y2="${H - 20}"/><text class="ch-tick" x="${x(media)}" y="${H - 6}" text-anchor="middle">média ${nf(media, M.dec)}</text>`;
+  return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" class="chart" style="min-width:560px" role="img" aria-label="Ranking de produção">${g}</svg></div>`;
+}
+function curvasTop(rows) {
+  const series = rows.filter(r => r.lac && r.lac.pontos.length);
+  if (!series.length) return '<div class="empty">Sem pesagens suficientes.</div>';
+  const W = 520, H = 230, pl = 36, pr = 12, pt = 12, pb = 26, maxD = 330;
+  const mx = Math.ceil(Math.max(...series.flatMap(r => r.lac.pontos.map(p => p.l))) * 1.1 / 5) * 5;
+  const x = d => pl + Math.min(d, maxD) * (W - pl - pr) / maxD, y = l => pt + (mx - l) * (H - pt - pb) / mx;
+  let g = ''; for (let l = 0; l <= mx; l += mx > 30 ? 10 : 5) g += `<line class="ch-grid" x1="${pl}" x2="${W - pr}" y1="${y(l)}" y2="${y(l)}"/><text class="ch-tick" x="${pl - 6}" y="${y(l) + 4}" text-anchor="end">${l}</text>`;
+  for (let d = 0; d <= 300; d += 60) g += `<text class="ch-tick" x="${x(d)}" y="${H - 8}" text-anchor="middle">${d}</text>`;
+  series.forEach((r, i) => {
+    const ps = r.lac.pontos, cor = CORES[i];
+    g += `<path d="${ps.map((p, j) => `${j ? 'L' : 'M'}${x(p.d).toFixed(1)},${y(p.l).toFixed(1)}`).join('')}" style="fill:none;stroke:${cor};stroke-width:2.2;stroke-linejoin:round"/>` + ps.map(p => `<circle cx="${x(p.d)}" cy="${y(p.l)}" r="3" style="fill:${cor};stroke:var(--surface);stroke-width:1.5"/>`).join('');
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Curvas de lactação">${g}</svg><div class="legend" style="margin-top:6px">${series.map((r, i) => `<span><i style="background:${CORES[i]}"></i>${esc(r.a.nome || r.a.brinco)}</span>`).join('')}</div>`;
+}
+function histograma(vals, M) {
+  const passo = M.un === 'L' ? niceStep(Math.max(...vals) / 8) : 5;
+  const faixas = {}; vals.forEach(v => { const k = Math.floor(v / passo) * passo; faixas[k] = (faixas[k] || 0) + 1; });
+  const ks = Object.keys(faixas).map(Number).sort((a, b) => a - b), ini = ks[0], fim = ks[ks.length - 1], cols = [];
+  for (let k = ini; k <= fim; k += passo) cols.push([k, faixas[k] || 0]);
+  const W = 520, H = 230, pl = 30, pb = 40, pt = 16, mx = Math.max(...cols.map(c => c[1])), bw = (W - pl - 10) / cols.length;
+  const y = n => pt + (mx - n) * (H - pt - pb) / mx;
+  let g = ''; for (let n = 0; n <= mx; n += Math.max(1, Math.ceil(mx / 4))) g += `<line class="ch-grid" x1="${pl}" x2="${W - 10}" y1="${y(n)}" y2="${y(n)}"/><text class="ch-tick" x="${pl - 6}" y="${y(n) + 4}" text-anchor="end">${n}</text>`;
+  cols.forEach(([k, n], i) => {
+    const bx = pl + i * bw + 3;
+    g += `<rect x="${bx}" y="${y(n)}" width="${bw - 6}" height="${y(0) - y(n)}" rx="4" style="fill:var(--accent);opacity:${.35 + .65 * (i + 1) / cols.length}"/>${n ? `<text class="ch-val" x="${bx + (bw - 6) / 2}" y="${y(n) - 5}" text-anchor="middle">${n}</text>` : ''}<text class="ch-tick" x="${bx + (bw - 6) / 2}" y="${H - 22}" text-anchor="middle">${nf(k)}</text><text class="ch-tick" x="${bx + (bw - 6) / 2}" y="${H - 9}" text-anchor="middle">a ${nf(k + passo)}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Distribuição da produção">${g}</svg>`;
+}
+function barrasGrupo(grupos, M) {
+  if (!grupos.length) return '<div class="empty">Sem dados.</div>';
+  const rowH = 34, pl = 130, pr = 70, W = 520, H = grupos.length * rowH + 6, mx = Math.max(...grupos.map(g => g.m)) * 1.02;
+  const x = v => pl + v / mx * (W - pl - pr);
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Média por grupo">${grupos.map((g, i) => { const y = i * rowH + 4; return `<text class="ch-lbl" x="0" y="${y + 18}">${esc(g.k)}</text><text class="ch-tick" x="0" y="${y + 30}">${g.n} vaca${g.n > 1 ? 's' : ''}</text><rect x="${pl}" y="${y + 6}" width="${Math.max(2, x(g.m) - pl)}" height="${rowH - 14}" rx="5" style="fill:${CORES[i % CORES.length]}"/><text class="ch-val" x="${x(g.m) + 6}" y="${y + 21}">${nf(g.m, M.dec)}</text>`; }).join('')}</svg>`;
+}
+</script>
+</body>
+</html>

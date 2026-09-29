@@ -18,7 +18,8 @@ const CAT = {
   receita: ['Venda de leite', 'Venda de animais', 'Outras receitas'],
   despesa: ['Alimentação', 'Mão de obra', 'Sanidade', 'Reprodução', 'Energia', 'Combustível', 'Manutenção', 'Impostos e taxas', 'Arrendamento', 'Outras despesas'],
 };
-let mesSel = iso(HOJE).slice(0, 7), LANC = [];
+let mesSel = iso(HOJE).slice(0, 7), LANC = [], soNotas = false;
+const BUCKET_NF = 'notas-fiscais';
 (async () => { if (!await iniciarPagina('financeiro')) return; carregar(); })();
 async function depoisDeSalvar(m) { toast(m); await carregar(); }
 
@@ -34,14 +35,14 @@ async function carregar() {
     LANC = lanc;
     const doMes = ym => lanc.filter(l => l.data.startsWith(ym)), soma = (arr, t) => arr.filter(l => l.tipo === t).reduce((s, l) => s + Number(l.valor), 0);
     const litros = ym => tanque.filter(t => t.data.startsWith(ym)).reduce((s, t) => s + Number(t.litros), 0);
-    const atual = doMes(mesSel), rec = soma(atual, 'receita'), desp = soma(atual, 'despesa'), lt = litros(mesSel);
+    const atual = doMes(mesSel), lista = soNotas ? atual.filter(l => l.nf_numero || l.arquivo) : atual, rec = soma(atual, 'receita'), desp = soma(atual, 'despesa'), lt = litros(mesSel);
     const recLeite = atual.filter(l => l.categoria === 'Venda de leite').reduce((s, l) => s + Number(l.valor), 0);
     const nomeMes = mesTxt(mesSel + '-01');
     const cats = [...CAT.receita.map(c => ['receita', c]), ...CAT.despesa.map(c => ['despesa', c])].filter(([t, c]) => lanc.some(l => l.tipo === t && l.categoria === c));
     const extra = [...new Set(lanc.map(l => l.tipo + '|' + l.categoria))].filter(k => !cats.some(([t, c]) => t + '|' + c === k)).map(k => k.split('|'));
 
     main.innerHTML = head('Financeiro da atividade', 'Receitas e despesas da produção de leite, mês a mês. Compras de insumo, sêmen, vacinas, vendas de animais e o leite do laticínio podem entrar aqui sozinhos.',
-      `<input type="month" id="mesSel" class="search" style="width:auto" value="${mesSel}" onchange="mesSel=this.value||mesSel;carregar()"><button class="btn pri" onclick="formLanc()">Novo lançamento</button>`) +
+      `<input type="month" id="mesSel" class="search" style="width:auto" value="${mesSel}" onchange="mesSel=this.value||mesSel;carregar()"><button class="btn" onclick="formLanc(null, true)">Lançar nota fiscal</button><button class="btn pri" onclick="formLanc()">Novo lançamento</button>`) +
     `<div class="kpis">
       ${kpi('Receitas · ' + nomeMes, brl(rec, 0), recLeite ? 'leite ' + brl(recLeite, 0) : 'nenhuma venda de leite lançada')}
       ${kpi('Despesas · ' + nomeMes, brl(desp, 0), atual.filter(l => l.tipo === 'despesa').length + ' lançamentos')}
@@ -55,28 +56,53 @@ async function carregar() {
       <tr><td><b>Resultado</b></td>${meses.map(ym => { const r = soma(doMes(ym), 'receita') - soma(doMes(ym), 'despesa'); return `<td class="num mono ${r < 0 ? 'down' : 'up'}"><b>${nf(r)}</b></td>`; }).join('')}</tr>
       <tr><td class="muted">Custo por litro</td>${meses.map(ym => { const l = litros(ym), d = soma(doMes(ym), 'despesa'); return `<td class="num mono muted">${l && d ? nf(d / l, 2) : '—'}</td>`; }).join('')}</tr>
     </tbody></table></div></section>` : ''}
-    <section class="card"><header><h2>Lançamentos de ${nomeMes}</h2><span>clique para editar</span></header>
-      ${atual.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th class="num">Valor</th><th></th></tr></thead><tbody>${atual.map(l => `<tr class="click" onclick="formLanc(${l.id})"><td class="mono">${fd(l.data)}</td><td>${pill(esc(l.categoria), l.tipo === 'receita' ? 'ok' : 'mute')}</td><td>${esc(l.descricao || '')}</td><td class="num mono ${l.tipo === 'despesa' ? '' : 'up'}">${l.tipo === 'despesa' ? '−' : '+'}${brl(l.valor)}</td><td><button class="btn sm danger" onclick="event.stopPropagation();excluirLanc(${l.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nenhum lançamento neste mês.</div>'}</section>`;
+    <section class="card"><header><h2>Lançamentos de ${nomeMes}</h2><div class="chips"><button class="chip ${soNotas ? '' : 'on'}" onclick="soNotas=false;carregar()">Todos<em>${atual.length}</em></button><button class="chip ${soNotas ? 'on' : ''}" onclick="soNotas=true;carregar()">Com nota fiscal<em>${atual.filter(l => l.nf_numero || l.arquivo).length}</em></button></div></header>
+      ${lista.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th>Fornecedor / cliente</th><th>Nota fiscal</th><th class="num">Valor</th><th></th></tr></thead><tbody>${lista.map(l => `<tr class="click" onclick="formLanc(${l.id})"><td class="mono">${fd(l.data)}</td><td>${pill(esc(l.categoria), l.tipo === 'receita' ? 'ok' : 'mute')}</td><td>${esc(l.descricao || '')}</td><td class="muted">${esc(l.fornecedor || '')}</td><td style="white-space:nowrap">${l.nf_numero ? `<span class="mono">NF ${esc(l.nf_numero)}</span> ` : ''}${l.arquivo ? `<button class="btn sm" onclick="event.stopPropagation();verArquivo('${esc(l.arquivo)}')">Ver arquivo</button>` : ''}${!l.nf_numero && !l.arquivo ? '<span class="muted">—</span>' : ''}</td><td class="num mono ${l.tipo === 'despesa' ? '' : 'up'}">${l.tipo === 'despesa' ? '−' : '+'}${brl(l.valor)}</td><td><button class="btn sm danger" onclick="event.stopPropagation();excluirLanc(${l.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${soNotas ? 'Nenhuma nota fiscal lançada neste mês.' : 'Nenhum lançamento neste mês.'}</div>`}</section>`;
   } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar o financeiro</b>${esc(e.message)}</div></div>`; }
 }
 function optsCat(tipo, sel) { return CAT[tipo].map(c => `<option ${c === sel ? 'selected' : ''}>${c}</option>`).join(''); }
-function formLanc(id) {
+function formLanc(id, nota) {
   const l = id ? LANC.find(x => x.id === id) : null, tipo = l ? l.tipo : 'despesa';
   abrirModal({
-    titulo: l ? 'Editar lançamento' : 'Novo lançamento',
-    corpo: `<label>Tipo<select name="tipo" id="fl-tipo" onchange="document.getElementById('fl-cat').innerHTML=optsCat(this.value)"><option value="despesa" ${tipo === 'despesa' ? 'selected' : ''}>Despesa</option><option value="receita" ${tipo === 'receita' ? 'selected' : ''}>Receita</option></select></label>
+    titulo: l ? 'Editar lançamento' : nota ? 'Lançar nota fiscal' : 'Novo lançamento',
+    corpo: `<label>Tipo<select name="tipo" id="fl-tipo" onchange="document.getElementById('fl-cat').innerHTML=optsCat(this.value);document.getElementById('fl-forn-rot').textContent=this.value==='receita'?'Cliente':'Fornecedor'"><option value="despesa" ${tipo === 'despesa' ? 'selected' : ''}>Despesa</option><option value="receita" ${tipo === 'receita' ? 'selected' : ''}>Receita</option></select></label>
     <label>Categoria<select name="categoria" id="fl-cat">${optsCat(tipo, l && l.categoria)}</select></label>
     <label>Data<input name="data" id="fl-data" type="date" value="${l ? l.data : iso(HOJE)}" required></label><label>Valor (R$)<input name="valor" id="fl-valor" type="number" step="0.01" min="0" required value="${l ? l.valor : ''}"></label>
-    <label class="full">Descrição<input name="descricao" id="fl-desc" value="${l ? esc(l.descricao || '') : ''}"></label>`,
-    salvar: async f => {
-      const reg = { tipo: f.tipo, categoria: f.categoria, data: f.data, valor: +f.valor, descricao: f.descricao.trim() || null };
+    <label class="full">Descrição<input name="descricao" id="fl-desc" value="${l ? esc(l.descricao || '') : ''}"></label>
+    <div class="sec-t full">Nota fiscal</div>
+    <label>Nº da nota<input name="nf_numero" id="fl-nf" value="${l ? esc(l.nf_numero || '') : ''}" ${nota ? 'required' : ''}></label>
+    <label><span id="fl-forn-rot">${tipo === 'receita' ? 'Cliente' : 'Fornecedor'}</span><input name="fornecedor" id="fl-forn" value="${l ? esc(l.fornecedor || '') : ''}"></label>
+    <label class="full">Arquivo da nota (PDF ou foto)<input name="arquivo" id="fl-arq" type="file" accept="application/pdf,image/*"></label>
+    ${l && l.arquivo ? `<div class="hint">Já tem um arquivo anexado. <button type="button" class="btn sm" onclick="verArquivo('${esc(l.arquivo)}')">Ver arquivo</button> Se escolher outro, ele substitui.</div>` : ''}`,
+    salvar: async (f, form) => {
+      const reg = { tipo: f.tipo, categoria: f.categoria, data: f.data, valor: +f.valor, descricao: f.descricao.trim() || null, nf_numero: f.nf_numero.trim() || null, fornecedor: f.fornecedor.trim() || null };
+      const arq = form.querySelector('#fl-arq').files[0];
+      if (arq) {
+        if (arq.size > 10 * 1024 * 1024) throw new Error('o arquivo passa de 10 MB.');
+        const nome = arq.name.normalize('NFD').replace(/[^\w.\-]/g, '_');
+        const caminho = `${f.data.slice(0, 4)}/${Date.now()}-${nome}`;
+        const { error } = await sb.storage.from(BUCKET_NF).upload(caminho, arq, { contentType: arq.type || undefined });
+        if (error) throw new Error('falha ao enviar o arquivo: ' + error.message);
+        reg.arquivo = caminho;
+        if (l && l.arquivo) await sb.storage.from(BUCKET_NF).remove([l.arquivo]);
+      }
       if (l) await q(sb.from('lancamentos').update(reg).eq('id', id)); else await q(sb.from('lancamentos').insert(reg));
-      await depoisDeSalvar('Lançamento salvo');
+      await depoisDeSalvar(reg.nf_numero ? `Nota ${reg.nf_numero} lançada` : 'Lançamento salvo');
     }
   });
 }
+async function verArquivo(caminho) {
+  const { data, error } = await sb.storage.from(BUCKET_NF).createSignedUrl(caminho, 300);
+  if (error) { toast('Não foi possível abrir o arquivo: ' + error.message, true); return; }
+  window.open(data.signedUrl, '_blank');
+}
 function excluirLanc(id) {
-  confirmar('Excluir lançamento', 'Excluir este lançamento?', async () => { await q(sb.from('lancamentos').delete().eq('id', id)); await depoisDeSalvar('Lançamento excluído'); }, 'Excluir');
+  const l = LANC.find(x => x.id === id);
+  confirmar('Excluir lançamento', 'Excluir este lançamento?' + (l && l.arquivo ? ' O arquivo da nota também será apagado.' : ''), async () => {
+    await q(sb.from('lancamentos').delete().eq('id', id));
+    if (l && l.arquivo) await sb.storage.from(BUCKET_NF).remove([l.arquivo]);
+    await depoisDeSalvar('Lançamento excluído');
+  }, 'Excluir');
 }
 </script>
 </body>

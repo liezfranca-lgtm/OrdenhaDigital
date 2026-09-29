@@ -7,6 +7,8 @@
   --bg:#f2f5f8; --surface:#ffffff; --sunk:#e8eef3; --ink:#13202a; --muted:#5a6975; --line:#d8e1e8;
   --brand:#00aeef; --accent:#0781bc; --accent-ink:#ffffff; --accent-soft:#dcf0fa; --cost:#9fb0bb;
   --ok:#1f7a4a; --ok-soft:#dcf1e4; --warn:#9a600b; --warn-soft:#fbedd4; --bad:#b33126; --bad-soft:#fae1dc; --info:#5a4fb0; --info-soft:#e7e4f7;
+  --c1:#0781bc; --c2:#d9822b; --c3:#2f9e6e; --c4:#8a5cc7; --c5:#c24d6e; --c6:#6b7f8e;
+  --gold:#c9971c; --gold-soft:#fbf1d6; --silver:#8a99a6; --silver-soft:#eef2f5; --bronze:#b06a3b; --bronze-soft:#f7e7dc;
   --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
   --f-body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
@@ -17,6 +19,8 @@
   --bg:#0d1419; --surface:#151e25; --sunk:#10181e; --ink:#e3ebf0; --muted:#90a2ae; --line:#25323c;
   --brand:#00aeef; --accent:#3cc3f3; --accent-ink:#04141c; --accent-soft:#12303f; --cost:#55666f;
   --ok:#5fcb8c; --ok-soft:#173525; --warn:#e3a84b; --warn-soft:#3a2b12; --bad:#f07366; --bad-soft:#3d1b17; --info:#a79cf2; --info-soft:#27234a;
+  --c1:#3cc3f3; --c2:#f0a257; --c3:#5fcb8c; --c4:#b18cf0; --c5:#f07a9a; --c6:#93a6b4;
+  --gold:#f0c24b; --gold-soft:#3a2f10; --silver:#b9c6d0; --silver-soft:#232e36; --bronze:#e0955f; --bronze-soft:#3a2415;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -171,6 +175,37 @@ table.tbl{width:100%;border-collapse:collapse;font-size:.86rem}
 .sec-t{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;margin:18px 0 8px}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;z-index:80;font-weight:600;font-size:.88rem;max-width:calc(100% - 32px)}
 .toast.erro{background:var(--bad);color:#fff}
+
+/* ---------- genealogia ---------- */
+.gen{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:center}
+.gen-col{display:flex;flex-direction:column;gap:8px}
+.gen-box{border:1px solid var(--line);border-radius:8px;padding:6px 9px;background:var(--bg);min-width:0}
+.gen-box small{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.gen-box b{display:block;font-size:.84rem;overflow-wrap:anywhere}
+.gen-box span{font-size:.72rem;color:var(--muted)}
+.gen-box.eu{border-color:var(--accent);background:var(--accent-soft)}
+.gen-box.pai{border-left:3px solid var(--c1)} .gen-box.mae{border-left:3px solid var(--c5)}
+.gen-box.vazio b{color:var(--muted);font-weight:500;font-style:italic}
+
+/* ---------- ranking ---------- */
+.podio{display:grid;grid-template-columns:1fr 1.12fr 1fr;gap:14px;align-items:end;margin-bottom:16px}
+.pod{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:6px;cursor:pointer;min-width:0;position:relative;overflow:hidden}
+.pod:hover{border-color:var(--muted)}
+.pod::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:var(--m)}
+.pod .med{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font:800 1.05rem var(--f-display);background:var(--ms);color:var(--m);border:2px solid var(--m)}
+.pod .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pod h3{font-size:1.15rem;overflow-wrap:anywhere}
+.pod .big{font:800 2rem var(--f-display);font-stretch:108%;font-variant-numeric:tabular-nums;line-height:1}
+.pod .big small{font:500 .85rem var(--f-body);color:var(--muted)}
+.pod.p1{padding-block:24px;box-shadow:0 10px 30px -18px var(--gold)} .pod.p1 .big{font-size:2.5rem}
+.p1{--m:var(--gold);--ms:var(--gold-soft)} .p2{--m:var(--silver);--ms:var(--silver-soft)} .p3{--m:var(--bronze);--ms:var(--bronze-soft)}
+.rk-pos{font:700 .9rem var(--f-mono);display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--sunk)}
+.rk-pos.p1,.rk-pos.p2,.rk-pos.p3{background:var(--ms);color:var(--m)}
+.ch-lbl{fill:var(--ink);font:600 12px var(--f-body)}
+.ch-val{fill:var(--ink);font:700 12px var(--f-mono)}
+.ch-media{stroke:var(--warn);stroke-width:1.5;stroke-dasharray:5 4}
+select.search{width:auto}
+@media (max-width:700px){.podio{grid-template-columns:1fr}.podio .p1{order:-1}.gen{grid-template-columns:1fr 1fr}.gen-col:first-child{grid-column:1/-1}}
 
 /* ---------- login ---------- */
 .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px 16px}
