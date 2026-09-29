@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Rebanho</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script src="animal.js"></script>
+<script>
+let filtroCat = 'Todos', busca = '';
+(async () => { if (!await iniciarPagina('rebanho')) return; window.aoSalvar = carregar; carregar(); })();
+
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    await carregarBase();
+    main.innerHTML = head('Rebanho', 'Cadastro de todos os animais ativos. Clique numa linha para abrir a ficha com histórico, curva de lactação e ações.', `<button class="btn pri" onclick="formAnimal()">Cadastrar animal</button>`) +
+      `<div class="toolbar"><div class="chips" id="chips"></div>
+       <input class="search" id="busca" type="search" placeholder="Buscar por brinco, nome ou raça" value="${esc(busca)}" oninput="busca=this.value;tabela()"></div>
+       <section class="card"><div class="scroll" id="tab"></div></section>`;
+    tabela();
+    const abrir = +new URLSearchParams(location.search).get('animal');
+    if (abrir && BASE.porId.get(abrir)) ficha(abrir);
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar o rebanho</b>${esc(e.message)}</div></div>`; }
+}
+function tabela() {
+  const A = BASE.animais;
+  document.getElementById('chips').innerHTML = ['Todos', ...CATEGORIAS].map(c => `<button class="chip ${c === filtroCat ? 'on' : ''}" onclick="filtroCat='${c}';tabela()">${c}<em>${c === 'Todos' ? A.length : A.filter(a => a.categoria === c).length}</em></button>`).join('');
+  const t = busca.toLowerCase();
+  const rows = A.filter(a => (filtroCat === 'Todos' || a.categoria === filtroCat) && (!t || [a.brinco, a.nome, a.raca].join(' ').toLowerCase().includes(t)));
+  if (!A.length) { document.getElementById('tab').innerHTML = `<div class="empty-big"><b>Nenhum animal cadastrado</b>Use o botão "Cadastrar animal" para começar.</div>`; return; }
+  document.getElementById('tab').innerHTML = `<table class="tbl"><thead><tr><th>Brinco</th><th>Nome</th><th>Raça</th><th>Categoria</th><th>Lote</th><th>Idade</th><th class="num">Lact.</th><th class="num">DEL</th><th class="num">L/dia</th><th>Situação</th><th class="num">CCS</th></tr></thead><tbody>
+  ${rows.map(a => { const p = prodAtual(a), c = ccsAtual(a); return `<tr class="click" onclick="ficha(${a.id})"><td><span class="brinco">${esc(a.brinco)}</span></td><td><b>${esc(a.nome || '')}</b></td><td class="muted">${esc(a.raca || '—')}</td><td>${a.categoria}</td><td class="muted">${esc(loteNome(a).split(' · ')[0])}</td><td class="muted">${idadeTxt(a.data_nascimento)}</td><td class="num mono">${a.numero_lactacao || '—'}</td><td class="num mono">${delDe(a) ?? '—'}</td><td class="num mono">${p != null ? nf(p, 1) : '—'}${emCarencia(a) ? ' ' + pill('carência', 'bad') : ''}</td><td>${situacao(a)}</td><td class="num mono ${c > 500 ? 'down' : ''}">${c != null ? nf(c) : '—'}</td></tr>`; }).join('') || `<tr><td colspan="11" class="empty">Nenhum animal encontrado com esse filtro.</td></tr>`}</tbody></table>`;
+}
+</script>
+</body>
+</html>

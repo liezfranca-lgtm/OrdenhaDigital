@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Reprodução</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script src="animal.js"></script>
+<script>
+(async () => { if (!await iniciarPagina('reproducao')) return; window.aoSalvar = carregar; carregar(); })();
+
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    await carregarBase();
+    const eventos = await q(sb.from('eventos').select('*').in('tipo', TIPOS_EVENTO).gte('data', iso(addD(HOJE, -45))).order('data', { ascending: false }).order('id', { ascending: false }).limit(40));
+    const al = calcAlertas(), A = BASE.animais;
+    const vacas = A.filter(a => a.categoria === 'Lactação' || a.categoria === 'Seca'), pren = vacas.filter(a => a.situacao_reprodutiva === 'Prenhe');
+    const media = arr => arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null;
+    const spc = media(pren.filter(a => a.ias_no_ciclo > 0).map(a => a.ias_no_ciclo));
+    const iep = media(pren.filter(a => a.data_ultimo_parto).map(a => dd(prevParto(a), pd(a.data_ultimo_parto))));
+    const pc = media(pren.filter(a => a.data_ultimo_parto).map(a => dd(pd(a.data_ultima_ia), pd(a.data_ultimo_parto))));
+    const bloco = (t, sub, arr, fn) => `<section class="card"><header><h2>${t}</h2><span>${sub}</span></header><div class="list">${arr.length ? arr.map(a => `<div class="li" onclick="ficha(${a.id})"><span>${animLink(a)}<br><small>${fn(a)}</small></span></div>`).join('') : '<div class="empty">Nada pendente.</div>'}</div></section>`;
+
+    main.innerHTML = head('Reprodução', 'Inseminação, diagnóstico de gestação, secagem e partos. Os prazos são calculados sozinhos a partir das datas lançadas.', `<button class="btn pri" onclick="formEvento()">Registrar evento reprodutivo</button>`) +
+    `<div class="kpis">
+      ${kpi('Vacas prenhes', vacas.length ? nf(pren.length / vacas.length * 100) + '%' : '—', `${pren.length} de ${vacas.length} · meta 55% ou mais`)}
+      ${kpi('IEP projetado', iep ? nf(iep / 30.44, 1) : '—', 'meses entre partos · meta 13', iep ? 'm' : '')}
+      ${kpi('Parto até concepção', pc ? nf(pc) : '—', 'dias em média · meta até 110', pc ? 'd' : '')}
+      ${kpi('Doses por prenhez', spc ? nf(spc, 1) : '—', 'inseminações por concepção')}
+      ${kpi('Vazias com DEL acima de 150', al.problema.length, 'avaliar com o veterinário')}
+    </div>
+    <div class="grid g3">
+      ${bloco('Diagnóstico de gestação', 'IA há 28 dias ou mais', al.diag, a => `IA ${fd(a.data_ultima_ia)} · ${diasIA(a)} dias · ${esc(a.touro_ultima_ia || '')}`)}
+      ${bloco('Observar retorno de cio', 'IA entre 18 e 24 dias', al.cio, a => `IA ${fd(a.data_ultima_ia)} · retorno esperado ${fd(addD(pd(a.data_ultima_ia), 21))}`)}
+      ${bloco('Liberadas para inseminar', 'após 45 dias de espera voluntária', al.liberadas, a => a.categoria === 'Novilha' ? `Novilha · ${a.peso ? nf(a.peso) + ' kg · ' : ''}${idadeTxt(a.data_nascimento)}` : `DEL ${delDe(a)} · ${a.numero_lactacao}ª lactação`)}
+      ${bloco('Secar', 'parto previsto em até 60 dias', al.secar, a => `${addD(prevParto(a), -DIAS_SECAGEM) < HOJE ? pill('atrasada', 'bad') + ' ' : ''}Secar até ${fd(addD(prevParto(a), -DIAS_SECAGEM))} · parto ${fd(prevParto(a))}${prodAtual(a) != null ? ' · ' + nf(prodAtual(a), 1) + ' L/dia' : ''}`)}
+      ${bloco('Partos previstos', 'próximos 30 dias', al.partos, a => `${a.categoria} · parto ${fd(prevParto(a))} · pré-parto desde ${fd(addD(prevParto(a), -DIAS_PRE_PARTO))}`)}
+      ${bloco('Problema reprodutivo', 'vazias com DEL acima de 150', al.problema, a => `DEL ${delDe(a)} · ${a.ias_no_ciclo || 0} IA sem prenhez`)}
+    </div>
+    <div class="grid g2e">
+      <section class="card"><header><h2>Botijão de sêmen</h2><button class="btn sm" onclick="formTouro()">Cadastrar touro</button></header>
+        ${BASE.touros.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Touro</th><th>Raça</th><th class="num">Doses</th><th class="num">R$/dose</th><th></th></tr></thead><tbody>
+        ${BASE.touros.filter(t => t.ativo).map(t => `<tr><td><b>${esc(t.codigo)}</b>${t.sexado ? ' ' + pill('sexado', 'acc') : ''}<br><small class="muted">${esc(t.central || '')}</small></td><td class="muted">${esc(t.raca || '—')}</td><td class="num mono">${t.doses} ${t.doses <= 3 ? pill('repor', 'warn') : ''}</td><td class="num mono">${brl(t.preco_dose)}</td><td><button class="btn sm" onclick="formDoses(${t.id})">Entrada</button> <button class="btn sm" onclick="formTouro(${t.id})">Editar</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Cadastre os touros do botijão para dar baixa automática a cada inseminação.</div>'}</section>
+      <section class="card"><header><h2>Eventos recentes</h2><span>últimos 45 dias</span></header>
+        ${eventos.length ? `<div class="scroll"><table class="tbl"><tbody>${eventos.map(e => { const a = BASE.porId.get(e.animal_id); return `<tr ${a ? `class="click" onclick="ficha(${a.id})"` : ''}><td class="mono">${fd(e.data)}</td><td>${a ? animLink(a) : '<span class="muted">animal fora do rebanho</span>'}</td><td><b>${esc(e.tipo)}</b><br><small class="muted">${esc(e.detalhe || '')}</small></td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Nenhum evento reprodutivo nos últimos 45 dias.</div>'}</section>
+    </div>`;
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar a reprodução</b>${esc(e.message)}</div></div>`; }
+}
+
+function formTouro(id) {
+  const t = id ? BASE.touros.find(x => x.id === id) : null;
+  abrirModal({
+    titulo: t ? 'Editar touro' : 'Cadastrar touro',
+    corpo: `<label>Código / nome<input name="codigo" id="tt-cod" required value="${t ? esc(t.codigo) : ''}"></label><label>Raça<input name="raca" id="tt-raca" list="dl-r" value="${t ? esc(t.raca || '') : ''}"><datalist id="dl-r">${RACAS.map(r => `<option>${r}</option>`).join('')}</datalist></label>
+    <label>Central<input name="central" id="tt-central" value="${t ? esc(t.central || '') : ''}"></label><label>Preço por dose (R$)<input name="preco" id="tt-preco" type="number" step="0.01" min="0" value="${t ? t.preco_dose : ''}"></label>
+    ${t ? `<label>Doses no botijão<input name="doses" id="tt-doses" type="number" min="0" value="${t.doses}"></label>` : `<label>Doses iniciais<input name="doses" id="tt-doses" type="number" min="0" value="0"></label>`}
+    <label class="chk"><input type="checkbox" name="sexado" id="tt-sex" ${t && t.sexado ? 'checked' : ''}> Sêmen sexado (fêmea)</label>
+    ${t ? `<label class="chk full"><input type="checkbox" name="inativar" id="tt-inat"> Tirar do botijão (não aparece mais nas listas)</label>` : ''}`,
+    salvar: async f => {
+      const reg = { codigo: f.codigo.trim(), raca: f.raca.trim() || null, central: f.central.trim() || null, preco_dose: +f.preco || 0, doses: +f.doses || 0, sexado: !!f.sexado };
+      if (t) { if (f.inativar) reg.ativo = false; await q(sb.from('touros').update(reg).eq('id', id)); }
+      else await q(sb.from('touros').insert(reg));
+      await depoisDeSalvar('Touro salvo');
+    }
+  });
+}
+function formDoses(id) {
+  const t = BASE.touros.find(x => x.id === id);
+  abrirModal({
+    titulo: 'Entrada de doses · ' + esc(t.codigo),
+    corpo: `<label>Quantidade de doses<input name="qtd" id="td-qtd" type="number" min="1" required></label><label>Preço por dose (R$)<input name="preco" id="td-preco" type="number" step="0.01" min="0" value="${t.preco_dose}"></label>
+    <label>Data da compra<input name="data" id="td-data" type="date" value="${iso(HOJE)}"></label><div></div>
+    <label class="chk full"><input type="checkbox" name="lancar" id="td-lancar" checked> Lançar a compra no Financeiro (despesa de reprodução)</label>`,
+    salvar: async f => {
+      await q(sb.from('touros').update({ doses: t.doses + +f.qtd, preco_dose: +f.preco || t.preco_dose }).eq('id', id));
+      if (f.lancar && +f.preco > 0) await q(sb.from('lancamentos').insert({ data: f.data, tipo: 'despesa', categoria: 'Reprodução', descricao: `Sêmen ${t.codigo} · ${f.qtd} doses`, valor: +f.qtd * +f.preco }));
+      await depoisDeSalvar(`${f.qtd} doses de ${t.codigo} adicionadas`);
+    }
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Produção de leite</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script src="animal.js"></script>
+<script>
+let TANQUE = [];
+(async () => { if (!await iniciarPagina('producao')) return; window.aoSalvar = carregar; carregar(); })();
+
+const descarteHoje = () => lact().filter(emCarencia).reduce((s, a) => s + (prodAtual(a) || 0), 0);
+
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    await carregarBase();
+    TANQUE = await q(sb.from('producao_tanque').select('*').gte('data', iso(addD(HOJE, -61))).order('data'));
+    const L = lact().slice().sort((a, b) => (prodAtual(b) ?? -1) - (prodAtual(a) ?? -1));
+    const ult = TANQUE[TANQUE.length - 1], ult7 = TANQUE.slice(-7);
+    const m7 = ult7.length ? ult7.reduce((s, p) => s + Number(p.litros), 0) / ult7.length : null;
+    const comPes = L.filter(a => prodAtual(a) != null), totPes = comPes.reduce((s, a) => s + prodAtual(a), 0);
+    const dels = L.map(delDe).filter(v => v != null);
+    const lotesL = lotesTipo('lactacao');
+    const mudar = L.filter(a => { const s = loteSugerido(a); return s && s.id !== a.lote_id; });
+
+    main.innerHTML = head('Produção de leite', 'Entrega diária no tanque, produção por lote e controle leiteiro individual (pesagem por vaca).',
+      `<button class="btn" onclick="formTanque()">Lançar leite do tanque</button><button class="btn pri" onclick="formControleRebanho()">Controle leiteiro do rebanho</button>`) +
+    `<div class="kpis">
+      ${kpi('Entregue' + (ult ? ' · ' + fd(ult.data) : ''), ult ? nf(ult.litros) : '—', ult && Number(ult.descartado) ? nf(ult.descartado, 1) + ' L descartados' : 'litros no tanque', ult ? 'L' : '')}
+      ${kpi('Média 7 dias', m7 != null ? nf(m7) : '—', 'litros/dia no tanque', m7 != null ? 'L' : '')}
+      ${kpi('Média por vaca', comPes.length ? nf(totPes / comPes.length, 1) : '—', `${comPes.length} de ${L.length} vacas com pesagem`, comPes.length ? 'L' : '')}
+      ${kpi('Descarte (carência)', nf(descarteHoje(), 1), lact().filter(emCarencia).length + ' vacas em tratamento', 'L/dia')}
+      ${kpi('DEL médio', dels.length ? nf(dels.reduce((s, v) => s + v, 0) / dels.length) : '—', 'dias em lactação · ideal 150 a 180')}
+    </div>
+    <section class="card mb"><header><h2>Leite no tanque · últimos 60 dias</h2><span class="legend"><span><i style="background:var(--accent)"></i>diário</span><span><i style="background:var(--muted)"></i>média 7 dias</span></span></header>${lineChart(TANQUE.map(t => ({ d: pd(t.data), v: Number(t.litros) })), { label: 'Litros por dia' })}</section>
+    <div class="grid g2e">
+      <section class="card"><header><h2>Produção por lote</h2><span>pela última pesagem de cada vaca</span></header>
+        <table class="tbl"><thead><tr><th>Lote</th><th class="num">Vacas</th><th class="num">Total L</th><th class="num">Média L</th></tr></thead><tbody>
+        ${[...lotesL, { id: null, nome: 'Sem lote' }].map(l => { const vs = L.filter(a => (a.lote_id || null) === l.id), cp = vs.filter(a => prodAtual(a) != null), t = cp.reduce((s, a) => s + prodAtual(a), 0); return vs.length || l.id ? `<tr><td>${esc(l.nome)}</td><td class="num mono">${vs.length}</td><td class="num mono">${nf(t)}</td><td class="num mono">${cp.length ? nf(t / cp.length, 1) : '—'}</td></tr>` : ''; }).join('')}</tbody></table>
+        ${mudar.length ? `<p class="muted" style="margin:12px 0 8px">${mudar.length} vaca(s) com produção fora da faixa do lote atual (alta ≥ 24 L, média 15 a 24 L, fim abaixo de 15 L).</p><button class="btn sm" onclick="aplicarLotes()">Mover para o lote sugerido</button>` : ''}</section>
+      <section class="card"><header><h2>Últimas entregas</h2><span>clique para corrigir</span></header>
+        ${TANQUE.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Data</th><th class="num">Litros</th><th class="num">Descarte</th><th>Obs.</th><th></th></tr></thead><tbody>${TANQUE.slice(-8).reverse().map(t => `<tr class="click" onclick="formTanque('${t.data}')"><td class="mono">${fdy(t.data)}</td><td class="num mono">${nf(t.litros)}</td><td class="num mono">${Number(t.descartado) ? nf(t.descartado, 1) : '—'}</td><td class="muted">${esc(t.observacao || '')}</td><td><button class="btn sm danger" onclick="event.stopPropagation();excluirTanque('${t.data}')">Excluir</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nenhuma entrega lançada. Use "Lançar leite do tanque" todos os dias.</div>'}</section>
+    </div>
+    <section class="card"><header><h2>Controle leiteiro individual</h2><span>última pesagem de cada vaca em lactação</span></header>
+      ${L.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Vaca</th><th>Lote</th><th class="num">Lact.</th><th class="num">DEL</th><th>Pesagem</th><th class="num">Manhã</th><th class="num">Tarde</th><th class="num">Total L</th><th class="num">CCS</th><th></th></tr></thead><tbody>
+      ${L.map(a => { const p = prodAtual(a) != null ? BASE.ultPes.get(a.id) : null, c = ccsAtual(a); return `<tr class="click" onclick="ficha(${a.id})"><td>${animLink(a)}</td><td class="muted">${esc(loteNome(a).split(' · ')[0])}</td><td class="num mono">${a.numero_lactacao}</td><td class="num mono">${delDe(a) ?? '—'}</td><td class="mono muted">${p ? fd(p.data) : '—'}</td><td class="num mono">${p ? nf(p.manha, 1) : '—'}</td><td class="num mono">${p ? nf(p.tarde, 1) : '—'}</td><td class="num mono"><b>${p ? nf(p.total, 1) : '—'}</b></td><td class="num mono ${c > 500 ? 'down' : ''}">${c != null ? nf(c) : '—'}</td><td>${emCarencia(a) ? pill('descartar leite', 'bad') : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Nenhuma vaca em lactação cadastrada.</div>'}</section>`;
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar a produção</b>${esc(e.message)}</div></div>`; }
+}
+
+function formTanque(data) {
+  const t = data ? TANQUE.find(x => x.data === data) : null;
+  abrirModal({
+    titulo: t ? 'Corrigir entrega de ' + fdy(t.data) : 'Lançar leite do tanque',
+    corpo: `<label>Data<input name="data" id="ft-data" type="date" value="${t ? t.data : iso(addD(HOJE, -1))}" required ${t ? 'readonly' : ''}></label>
+    <label>Litros entregues<input name="litros" id="ft-litros" type="number" step="0.1" min="0" required value="${t ? t.litros : ''}"></label>
+    <label>Litros descartados<input name="descartado" id="ft-desc" type="number" step="0.1" min="0" value="${t ? t.descartado : descarteHoje().toFixed(1)}"></label>
+    <label>Observação<input name="obs" id="ft-obs" value="${t ? esc(t.observacao || '') : ''}"></label>
+    <div class="hint">Lance o total das ordenhas do dia que foi para o tanque (a coleta do laticínio). O descarte sugerido soma as vacas em carência de medicamento.</div>`,
+    salvar: async f => {
+      await q(sb.from('producao_tanque').upsert({ data: f.data, litros: +f.litros, descartado: +f.descartado || 0, observacao: f.obs.trim() || null }, { onConflict: 'data' }));
+      await depoisDeSalvar(`Entrega de ${fdy(f.data)} salva: ${nf(+f.litros)} L`);
+    }
+  });
+}
+function excluirTanque(data) {
+  confirmar('Excluir entrega', `Excluir o lançamento do tanque de <b>${fdy(data)}</b>?`, async () => {
+    await q(sb.from('producao_tanque').delete().eq('data', data)); await depoisDeSalvar('Entrega excluída');
+  }, 'Excluir');
+}
+function formControleRebanho() {
+  const L = lact().slice().sort((a, b) => a.brinco.localeCompare(b.brinco, 'pt-BR', { numeric: true }));
+  if (!L.length) { toast('Nenhuma vaca em lactação cadastrada', true); return; }
+  abrirModal({
+    titulo: 'Controle leiteiro do rebanho', wide: true, textoSalvar: 'Salvar pesagens',
+    corpo: `<label>Data do controle<input name="data" id="fcr-data" type="date" value="${iso(HOJE)}" required></label><div></div>
+    <div class="full scroll"><table class="tbl"><thead><tr><th>Vaca</th><th class="num">DEL</th><th class="num">Última</th><th>Manhã (L)</th><th>Tarde (L)</th><th>CCS</th></tr></thead><tbody>
+    ${L.map(a => { const p = prodAtual(a); return `<tr><td>${animLink(a)}${emCarencia(a) ? ' ' + pill('carência', 'bad') : ''}</td><td class="num mono">${delDe(a) ?? '—'}</td><td class="num mono muted">${p != null ? nf(p, 1) : '—'}</td><td><input name="m_${a.id}" id="m_${a.id}" type="number" step="0.1" min="0"></td><td><input name="t_${a.id}" id="t_${a.id}" type="number" step="0.1" min="0"></td><td><input name="c_${a.id}" id="c_${a.id}" type="number" min="0"></td></tr>`; }).join('')}</tbody></table></div>
+    <div class="hint">Preencha só as vacas pesadas. Linha em branco é ignorada. Se a vaca já tiver pesagem nessa data, ela é substituída.</div>`,
+    salvar: async f => {
+      const regs = L.filter(a => f['m_' + a.id] !== '' || f['t_' + a.id] !== '').map(a => ({ animal_id: a.id, data: f.data, manha: +f['m_' + a.id] || 0, tarde: +f['t_' + a.id] || 0, ccs: f['c_' + a.id] ? +f['c_' + a.id] : null }));
+      if (!regs.length) throw new Error('nenhuma pesagem preenchida.');
+      await q(sb.from('pesagens_leite').upsert(regs, { onConflict: 'animal_id,data' }));
+      await depoisDeSalvar(`${regs.length} pesagens salvas`);
+    }
+  });
+}
+async function aplicarLotes() {
+  const mudar = lact().filter(a => { const s = loteSugerido(a); return s && s.id !== a.lote_id; });
+  try {
+    for (const a of mudar) await q(sb.from('animais').update({ lote_id: loteSugerido(a).id }).eq('id', a.id));
+    await depoisDeSalvar(mudar.length + ' vaca(s) mudaram de lote');
+  } catch (e) { toast('Erro ao mudar lote: ' + e.message, true); }
+}
+</script>
+</body>
+</html>

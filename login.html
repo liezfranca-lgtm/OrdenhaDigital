@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Entrar</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login-card form" id="flogin" style="display:flex" novalidate>
+    <img src="logo-gm.png" alt="GM Agronegócios">
+    <h1>OrdenhaDigital</h1>
+    <p>Controle do rebanho leiteiro</p>
+    <div class="err" id="msg" hidden></div>
+    <label>E-mail<input type="email" id="email" autocomplete="username" required></label>
+    <label>Senha<input type="password" id="senha" autocomplete="current-password" required></label>
+    <button class="btn pri" id="btnLogin" type="submit">Entrar</button>
+  </form>
+</div>
+<script src="supabase-config.js"></script>
+<script>
+(function () { let t = null; try { t = localStorage.getItem('ordenha-tema'); } catch (e) {} document.documentElement.setAttribute('data-theme', t || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')); })();
+const msg = t => { const el = document.getElementById('msg'); el.textContent = t; el.hidden = !t; };
+document.getElementById('flogin').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim(), senha = document.getElementById('senha').value, btn = document.getElementById('btnLogin');
+  if (!email || !senha) { msg('Preencha e-mail e senha.'); return; }
+  btn.disabled = true; btn.textContent = 'Entrando…'; msg('');
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password: senha });
+  if (error) { msg('E-mail ou senha incorretos.'); btn.disabled = false; btn.textContent = 'Entrar'; return; }
+  location.href = 'painel.html';
+});
+supabaseClient.auth.getSession().then(({ data: { session } }) => { if (session) location.href = 'painel.html'; });
+</script>
+</body>
+</html>

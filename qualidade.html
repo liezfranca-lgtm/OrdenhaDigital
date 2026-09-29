@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Qualidade e laticínio</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script>
+const LIM_CCS = 500, LIM_CBT = 300, LIM_TEMP = 4;
+let AN = [];
+(async () => { if (!await iniciarPagina('qualidade')) return; carregar(); })();
+window.aoSalvar = () => carregar();
+async function depoisDeSalvar(m) { toast(m); await carregar(); }
+const precoFinal = a => Number(a.preco_base || 0) + Number(a.bonificacao || 0);
+
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    const [an, temps] = await Promise.all([
+      q(sb.from('analises_leite').select('*').order('mes', { ascending: false }).limit(18)),
+      q(sb.from('temperaturas_tanque').select('*').order('data', { ascending: false }).order('hora', { ascending: false }).limit(20)),
+    ]);
+    AN = an; const u = an[0];
+    main.innerHTML = head('Qualidade e laticínio', 'Análises mensais do leite, preço pago pelo laticínio com bonificação e temperatura do tanque de resfriamento.',
+      `<button class="btn" onclick="formTemp()">Lançar temperatura</button><button class="btn pri" onclick="formAnalise()">Lançar mês do laticínio</button>`) +
+    `<div class="kpis">
+      ${kpi('Preço final' + (u ? ' · ' + mesTxt(u.mes) : ''), u ? brl(precoFinal(u), 3) : '—', u ? 'base ' + brl(u.preco_base, 3) + (Number(u.bonificacao) ? (u.bonificacao > 0 ? ' + ' : ' − ') + brl(Math.abs(u.bonificacao), 3) : '') : 'lance o primeiro mês')}
+      ${kpi('CCS', u && u.ccs != null ? nf(u.ccs) : '—', 'mil cél/mL · limite ' + LIM_CCS)}
+      ${kpi('CBT', u && u.cbt != null ? nf(u.cbt) : '—', 'mil UFC/mL · limite ' + LIM_CBT)}
+      ${kpi('Gordura / proteína', u && u.gordura != null ? nf(u.gordura, 2) + ' / ' + nf(u.proteina, 2) : '—', '% no leite')}
+    </div>
+    <section class="card mb"><header><h2>Análises e pagamento por mês</h2><span>limites da IN 76: CCS até ${LIM_CCS} mil · CBT até ${LIM_CBT} mil</span></header>
+      ${an.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Mês</th><th class="num">Volume L</th><th class="num">CCS</th><th class="num">CBT</th><th class="num">Gord. %</th><th class="num">Prot. %</th><th class="num">Preço base</th><th class="num">Bonificação</th><th class="num">Preço final</th><th class="num">Valor bruto</th><th></th></tr></thead><tbody>
+      ${an.map(a => `<tr class="click" onclick="formAnalise(${a.id})"><td><b>${mesTxt(a.mes)}</b></td><td class="num mono">${a.volume != null ? nf(a.volume) : '—'}</td><td class="num">${a.ccs != null ? pill(nf(a.ccs), a.ccs > LIM_CCS ? 'bad' : 'ok') : '—'}</td><td class="num">${a.cbt != null ? pill(nf(a.cbt), a.cbt > LIM_CBT ? 'bad' : 'ok') : '—'}</td><td class="num mono">${a.gordura != null ? nf(a.gordura, 2) : '—'}</td><td class="num mono">${a.proteina != null ? nf(a.proteina, 2) : '—'}</td><td class="num mono">${a.preco_base != null ? brl(a.preco_base, 3) : '—'}</td><td class="num mono ${a.bonificacao < 0 ? 'down' : 'up'}">${Number(a.bonificacao) ? (a.bonificacao > 0 ? '+' : '') + nf(a.bonificacao, 3) : '—'}</td><td class="num mono"><b>${brl(precoFinal(a), 3)}</b></td><td class="num mono">${a.volume ? brl(a.volume * precoFinal(a), 0) : '—'}</td><td><button class="btn sm danger" onclick="event.stopPropagation();excluirAnalise(${a.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-big"><b>Nenhum mês lançado</b>Todo mês o laticínio manda o resultado das análises e o preço pago. Lance aqui para acompanhar a qualidade e a bonificação.</div>'}</section>
+    <section class="card"><header><h2>Temperatura do tanque</h2><span>resfriar a ${LIM_TEMP} °C em até 3 horas após a ordenha</span></header>
+      ${temps.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Data</th><th>Hora</th><th class="num">°C</th><th></th><th></th></tr></thead><tbody>${temps.map(t => `<tr><td class="mono">${fdy(t.data)}</td><td class="mono">${String(t.hora).slice(0, 5)}</td><td class="num mono">${nf(t.temperatura, 1)}</td><td>${t.temperatura > LIM_TEMP ? pill('acima de ' + LIM_TEMP + ' °C', 'bad') : pill('ok', 'ok')}</td><td><button class="btn sm danger" onclick="excluirTemp(${t.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nenhuma leitura lançada. Anote a temperatura do tanque depois de cada ordenha.</div>'}</section>`;
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar a qualidade</b>${esc(e.message)}</div></div>`; }
+}
+
+async function volumeTanque(mes) {
+  const ini = pd(mes + '-01'), fim = new Date(ini.getFullYear(), ini.getMonth() + 1, 0);
+  const t = await q(sb.from('producao_tanque').select('litros').gte('data', iso(ini)).lte('data', iso(fim)));
+  return t.reduce((s, x) => s + Number(x.litros), 0);
+}
+async function sugerirVolume() {
+  const m = document.getElementById('fan-mes').value; if (!m) return;
+  const v = await volumeTanque(m);
+  document.getElementById('fan-vol').value = v ? Math.round(v) : '';
+  document.getElementById('fan-hint').textContent = v ? `Total lançado no tanque em ${mesTxt(m + '-01')}: ${nf(v)} L.` : 'Nenhum lançamento de tanque nesse mês.';
+}
+function formAnalise(id) {
+  const a = id ? AN.find(x => x.id === id) : null, mesPadrao = iso(new Date(HOJE.getFullYear(), HOJE.getMonth() - 1, 1)).slice(0, 7);
+  const v = (k) => a && a[k] != null ? a[k] : '';
+  abrirModal({
+    titulo: a ? 'Editar ' + mesTxt(a.mes) : 'Lançar mês do laticínio',
+    corpo: `<label>Mês de referência<input name="mes" id="fan-mes" type="month" required value="${a ? a.mes.slice(0, 7) : mesPadrao}" ${a ? 'readonly' : ''} onchange="sugerirVolume()"></label>
+    <label>Volume entregue (L)<input name="volume" id="fan-vol" type="number" min="0" value="${v('volume')}"></label>
+    <label>Preço base (R$/L)<input name="preco" id="fan-preco" type="number" step="0.0001" min="0" required value="${v('preco_base')}"></label>
+    <label>Bonificação (R$/L, negativo se desconto)<input name="bonus" id="fan-bonus" type="number" step="0.0001" value="${v('bonificacao')}"></label>
+    <label>CCS (mil cél/mL)<input name="ccs" id="fan-ccs" type="number" min="0" value="${v('ccs')}"></label><label>CBT (mil UFC/mL)<input name="cbt" id="fan-cbt" type="number" min="0" value="${v('cbt')}"></label>
+    <label>Gordura (%)<input name="gordura" id="fan-gord" type="number" step="0.01" min="0" value="${v('gordura')}"></label><label>Proteína (%)<input name="proteina" id="fan-prot" type="number" step="0.01" min="0" value="${v('proteina')}"></label>
+    <label class="full">Observação<input name="obs" id="fan-obs" value="${a ? esc(a.observacao || '') : ''}"></label>
+    ${a ? '' : `<label class="chk full"><input type="checkbox" name="lancar" id="fan-lancar" checked> Lançar a receita do leite no Financeiro (volume × preço final)</label>`}
+    <div class="hint" id="fan-hint">O volume é sugerido pela soma dos lançamentos do tanque no mês. Confira com o extrato do laticínio.</div>`,
+    salvar: async f => {
+      const reg = { mes: f.mes + '-01', volume: f.volume ? +f.volume : null, preco_base: +f.preco, bonificacao: +f.bonus || 0, ccs: f.ccs ? +f.ccs : null, cbt: f.cbt ? +f.cbt : null, gordura: f.gordura ? +f.gordura : null, proteina: f.proteina ? +f.proteina : null, observacao: f.obs.trim() || null };
+      if (a) await q(sb.from('analises_leite').update(reg).eq('id', id));
+      else {
+        await q(sb.from('analises_leite').insert(reg));
+        if (f.lancar && reg.volume) {
+          const ini = pd(reg.mes), fim = new Date(ini.getFullYear(), ini.getMonth() + 1, 0);
+          await q(sb.from('lancamentos').insert({ data: iso(fim), tipo: 'receita', categoria: 'Venda de leite', descricao: `Leite ${mesTxt(reg.mes)} · ${nf(reg.volume)} L × ${brl(reg.preco_base + reg.bonificacao, 3)}`, valor: +(reg.volume * (reg.preco_base + reg.bonificacao)).toFixed(2) }));
+        }
+      }
+      await depoisDeSalvar('Mês ' + mesTxt(reg.mes) + ' salvo');
+    }
+  });
+  if (!a) sugerirVolume();
+}
+function excluirAnalise(id) {
+  const a = AN.find(x => x.id === id);
+  confirmar('Excluir mês', `Excluir a análise de <b>${mesTxt(a.mes)}</b>? Se a receita foi lançada no Financeiro, exclua lá também.`, async () => {
+    await q(sb.from('analises_leite').delete().eq('id', id)); await depoisDeSalvar('Mês excluído');
+  }, 'Excluir');
+}
+function formTemp() {
+  const h = new Date();
+  abrirModal({
+    titulo: 'Lançar temperatura do tanque',
+    corpo: `<label>Data<input name="data" id="fte-data" type="date" value="${iso(HOJE)}" required></label><label>Hora<input name="hora" id="fte-hora" type="time" value="${String(h.getHours()).padStart(2, '0')}:${String(h.getMinutes()).padStart(2, '0')}" required></label>
+    <label>Temperatura (°C)<input name="temp" id="fte-temp" type="number" step="0.1" required></label>`,
+    salvar: async f => {
+      await q(sb.from('temperaturas_tanque').insert({ data: f.data, hora: f.hora, temperatura: +f.temp }));
+      await depoisDeSalvar(+f.temp > LIM_TEMP ? `Atenção: ${nf(+f.temp, 1)} °C está acima de ${LIM_TEMP} °C` : 'Temperatura registrada');
+    }
+  });
+}
+function excluirTemp(id) {
+  confirmar('Excluir leitura', 'Excluir esta leitura de temperatura?', async () => { await q(sb.from('temperaturas_tanque').delete().eq('id', id)); await depoisDeSalvar('Leitura excluída'); }, 'Excluir');
+}
+</script>
+</body>
+</html>

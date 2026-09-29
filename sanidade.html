@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Sanidade</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script src="animal.js"></script>
+<script>
+let MANEJOS = [];
+(async () => { if (!await iniciarPagina('sanidade')) return; window.aoSalvar = carregar; carregar(); })();
+
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    await carregarBase();
+    MANEJOS = await carregarManejos();
+    const T = BASE.tratamentos, ativos = T.filter(t => pd(t.data_liberacao) > HOJE || pd(addD(pd(t.data_inicio), t.dias_aplicacao)) > HOJE);
+    const hist = T.filter(t => pd(t.data_inicio) >= addD(HOJE, -90)).sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
+    const L = lact(), ccsA = L.filter(a => ccsAtual(a) > 500).sort((a, b) => ccsAtual(b) - ccsAtual(a));
+    const mastite = hist.filter(t => /mastite cl[ií]nica/i.test(t.doenca));
+    const descarte = L.filter(emCarencia).reduce((s, a) => s + (prodAtual(a) || 0), 0);
+    const b19 = calcAlertas().b19;
+    const nomeAnimal = id => { const a = BASE.porId.get(id); return a ? animLink(a) : '<span class="muted">fora do rebanho</span>'; };
+
+    main.innerHTML = head('Sanidade', 'Calendário de vacinas e exames, tratamentos com carência de leite e controle de mastite.', `<button class="btn" onclick="formManejo()">Novo manejo no calendário</button><button class="btn pri" onclick="formTratamento()">Registrar tratamento</button>`) +
+    `<div class="kpis">
+      ${kpi('Em tratamento', ativos.length, 'com medicação ou carência ativa')}
+      ${kpi('Leite descartado', nf(descarte, 1), 'por dia, até liberar a carência', 'L')}
+      ${kpi('Mastite clínica · 90 dias', mastite.length, L.length ? nf(mastite.length / L.length * 100, 1) + '% das vacas em lactação' : '')}
+      ${kpi('CCS acima de 500 mil', ccsA.length, 'vacas · fazer CMT e cultura')}
+    </div>
+    <section class="card mb"><header><h2>Calendário sanitário</h2><span>próxima data calculada pela frequência</span></header><div class="scroll"><table class="tbl"><thead><tr><th>Vacina / manejo</th><th>Grupo</th><th>Última</th><th>Próxima</th><th>Frequência</th><th>Situação</th><th></th></tr></thead><tbody>
+    ${MANEJOS.map(m => `<tr><td><b>${esc(m.nome)}</b></td><td class="muted">${esc(m.grupo || '')}</td><td class="mono">${fdy(m.ult)}</td><td class="mono">${m.prox ? fdy(m.prox) : '—'}</td><td class="muted">a cada ${m.frequencia_dias} dias</td><td>${pill(m.status[0], m.status[1])}</td><td style="white-space:nowrap"><button class="btn sm" onclick="formAplicacao(${m.id})">Registrar aplicação</button> <button class="btn sm" onclick="formManejo(${m.id})">Editar</button></td></tr>`).join('')}
+    <tr><td><b>Brucelose B19</b></td><td class="muted">Bezerras de 3 a 8 meses</td><td colspan="3" class="muted">individual, registrado em Bezerras e novilhas</td><td>${b19.length ? pill(b19.length + ' pendente(s)', 'warn') : pill('Em dia', 'ok')}</td><td><a class="btn sm" href="bezerras.html">Abrir</a></td></tr>
+    </tbody></table></div></section>
+    <div class="grid g2e">
+      <section class="card"><header><h2>Tratamentos ativos</h2><span>leite só volta ao tanque depois da liberação</span></header>
+        ${ativos.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Animal</th><th>Doença / medicamento</th><th>Libera</th><th></th></tr></thead><tbody>${ativos.map(t => `<tr><td>${nomeAnimal(t.animal_id)}</td><td>${esc(t.doenca)}<br><small class="muted">${esc(t.medicamento)} · ${t.dias_aplicacao} d + ${t.carencia_leite} d de carência</small></td><td>${t.carencia_leite > 0 ? pill(fd(t.data_liberacao), 'bad') : pill('sem carência', 'mute')}</td><td><button class="btn sm danger" onclick="excluirTrat(${t.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nenhum animal em tratamento.</div>'}</section>
+      <section class="card"><header><h2>CCS individual alta</h2><span>última pesagem com CCS</span></header>
+        ${ccsA.length ? `<div class="list">${ccsA.map(a => `<div class="li" onclick="ficha(${a.id})"><span>${animLink(a)}<br><small>${a.numero_lactacao}ª lactação · DEL ${delDe(a)}</small></span><b class="mono down">${nf(ccsAtual(a))} mil</b></div>`).join('')}</div>` : '<div class="empty">Nenhuma vaca acima de 500 mil. A CCS individual é lançada junto com a pesagem de leite.</div>'}</section>
+    </div>
+    <section class="card"><header><h2>Histórico de tratamentos · 90 dias</h2></header>
+      ${hist.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Início</th><th>Animal</th><th>Doença</th><th>Medicamento</th><th class="num">Carência</th></tr></thead><tbody>${hist.map(t => `<tr><td class="mono">${fd(t.data_inicio)}</td><td>${nomeAnimal(t.animal_id)}</td><td>${esc(t.doenca)}</td><td class="muted">${esc(t.medicamento)}</td><td class="num mono">${t.carencia_leite} d</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nenhum tratamento nos últimos 90 dias.</div>'}</section>`;
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar a sanidade</b>${esc(e.message)}</div></div>`; }
+}
+
+function formAplicacao(id) {
+  const m = MANEJOS.find(x => x.id === id);
+  abrirModal({
+    titulo: 'Registrar aplicação · ' + esc(m.nome),
+    corpo: `<label>Data<input name="data" id="fap-data" type="date" value="${iso(HOJE)}" required></label><label>Produto / lote<input name="obs" id="fap-obs" placeholder="opcional"></label>
+    <label>Custo total (R$)<input name="valor" id="fap-valor" type="number" step="0.01" min="0" placeholder="opcional"></label><div></div>
+    <div class="hint">Se informar o custo, ele entra no Financeiro como despesa de sanidade.</div>`,
+    salvar: async f => {
+      await q(sb.from('aplicacoes_sanitarias').insert({ manejo_id: id, data: f.data, observacao: f.obs.trim() || null }));
+      if (+f.valor > 0) await q(sb.from('lancamentos').insert({ data: f.data, tipo: 'despesa', categoria: 'Sanidade', descricao: m.nome + (f.obs.trim() ? ' · ' + f.obs.trim() : ''), valor: +f.valor }));
+      await depoisDeSalvar(`${m.nome}: próxima em ${fdy(addD(pd(f.data), m.frequencia_dias))}`);
+    }
+  });
+}
+function formManejo(id) {
+  const m = id ? MANEJOS.find(x => x.id === id) : null;
+  abrirModal({
+    titulo: m ? 'Editar manejo' : 'Novo manejo no calendário',
+    corpo: `<label class="full">Nome<input name="nome" id="fm-nome" required value="${m ? esc(m.nome) : ''}"></label>
+    <label>Grupo<input name="grupo" id="fm-grupo" value="${m ? esc(m.grupo || '') : ''}" placeholder="Ex.: Todo o rebanho"></label><label>Repetir a cada (dias)<input name="freq" id="fm-freq" type="number" min="1" required value="${m ? m.frequencia_dias : ''}"></label>
+    ${m ? `<label class="chk full"><input type="checkbox" name="inativar" id="fm-inat"> Tirar do calendário</label>` : ''}`,
+    salvar: async f => {
+      const reg = { nome: f.nome.trim(), grupo: f.grupo.trim() || null, frequencia_dias: +f.freq };
+      if (m) { if (f.inativar) reg.ativo = false; await q(sb.from('manejos_sanitarios').update(reg).eq('id', id)); }
+      else await q(sb.from('manejos_sanitarios').insert(reg));
+      await depoisDeSalvar('Calendário atualizado');
+    }
+  });
+}
+function excluirTrat(id) {
+  confirmar('Excluir tratamento', 'Excluir este tratamento? Use só para corrigir lançamento errado.', async () => {
+    await q(sb.from('tratamentos').delete().eq('id', id)); await depoisDeSalvar('Tratamento excluído');
+  }, 'Excluir');
+}
+</script>
+</body>
+</html>

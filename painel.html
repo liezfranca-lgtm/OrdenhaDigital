@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Painel</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script src="animal.js"></script>
+<script>
+(async () => { if (!await iniciarPagina('painel')) return; window.aoSalvar = carregar; carregar(); })();
+
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    await carregarBase();
+    const [tanque, analises, manejos, nut] = await Promise.all([
+      q(sb.from('producao_tanque').select('*').gte('data', iso(addD(HOJE, -31))).order('data')),
+      q(sb.from('analises_leite').select('*').order('mes', { ascending: false }).limit(1)),
+      carregarManejos(), carregarNutricao(),
+    ]);
+    const A = BASE.animais;
+    const botoes = `<a class="btn" href="producao.html">Lançar leite do tanque</a><button class="btn pri" onclick="formEvento()">Registrar evento</button>`;
+    if (!A.length) {
+      main.innerHTML = head('Painel do dia', 'Resumo da ordenha, do rebanho e do que precisa de atenção hoje.') +
+        `<section class="card"><div class="empty-big"><b>Nenhum animal cadastrado ainda</b>Comece cadastrando o rebanho. Para vacas que já estão em lactação ou prenhes, informe a data do último parto e da última inseminação: o sistema calcula o resto.<br><button class="btn pri" onclick="formAnimal()">Cadastrar primeiro animal</button></div></section>`;
+      return;
+    }
+    const al = calcAlertas({ manejos, insumosCriticos: nut.criticos });
+    const L = lact(), vacas = A.filter(a => a.categoria === 'Lactação' || a.categoria === 'Seca');
+    const pren = vacas.filter(a => a.situacao_reprodutiva === 'Prenhe').length;
+    const ult = tanque[tanque.length - 1];
+    const ant = tanque.slice(-8, -1), m7 = ant.length ? ant.reduce((s, p) => s + Number(p.litros), 0) / ant.length : null;
+    const variacao = ult && m7 ? (Number(ult.litros) / m7 - 1) * 100 : null;
+    const comPes = L.map(prodAtual).filter(v => v != null);
+    const media = ult && L.length ? Number(ult.litros) / L.length : comPes.length ? comPes.reduce((s, v) => s + v, 0) / comPes.length : null;
+    const an = analises[0];
+    const cats = [['Lactação', 'var(--accent)'], ['Seca', 'var(--info)'], ['Novilha', 'var(--warn)'], ['Bezerra', 'var(--cost)']];
+    const prox = A.filter(a => prevParto(a)).sort((a, b) => prevParto(a) - prevParto(b)).slice(0, 6);
+    const pts = tanque.map(t => ({ d: pd(t.data), v: Number(t.litros) }));
+
+    main.innerHTML = head('Painel do dia', 'Resumo da ordenha, do rebanho e do que precisa de atenção hoje.', botoes) +
+    `<div class="kpis">
+      ${kpi('Leite entregue' + (ult ? ' · ' + fd(ult.data) : ''), ult ? nf(ult.litros) : '—', variacao != null ? `<span class="${variacao >= 0 ? 'up' : 'down'}">${variacao >= 0 ? '▲' : '▼'} ${nf(Math.abs(variacao), 1)}%</span> vs. média 7 dias` : 'lance em Produção de leite', ult ? 'L' : '')}
+      ${kpi('Vacas em lactação', L.length, vacas.length ? `de ${vacas.length} vacas · ${nf(L.length / vacas.length * 100)}%` : '')}
+      ${kpi('Média por vaca', media != null ? nf(media, 1) : '—', 'litros/vaca/dia', media != null ? 'L' : '')}
+      ${kpi('CCS do tanque', an && an.ccs != null ? nf(an.ccs) : '—', an ? 'mil cél/mL · ' + mesTxt(an.mes) + ' · limite 500' : 'lance em Qualidade')}
+      ${kpi('Vacas prenhes', vacas.length ? nf(pren / vacas.length * 100) + '%' : '—', `${pren} de ${vacas.length} vacas`)}
+      ${kpi('Custo alimentar', nut.custoDia && ult ? brl(nut.custoDia / Number(ult.litros)) : '—', nut.custoDia ? 'por litro · ' + brl(nut.custoDia, 0) + '/dia' : 'cadastre as dietas')}
+    </div>
+    <div class="grid g2">
+      <section class="card"><header><h2>Leite no tanque · últimos 30 dias</h2><span class="legend"><span><i style="background:var(--accent)"></i>diário</span><span><i style="background:var(--muted)"></i>média 7 dias</span></span></header>${lineChart(pts, { label: 'Litros entregues por dia' })}</section>
+      <section class="card"><header><h2>Atenção hoje</h2><span>${al.lista.reduce((s, x) => s + x[0], 0)} pendências</span></header>
+        ${al.lista.length ? `<div class="alerts">${al.lista.map(x => `<a class="alert" href="${x[4]}"><span class="bar s-${x[3]}"></span><span style="min-width:0"><b>${x[1]}</b><small>${esc(x[2])}</small></span><span class="n">${x[0]}</span></a>`).join('')}</div>` : '<div class="empty">Nenhuma pendência para hoje.</div>'}</section>
+    </div>
+    <div class="grid g2e">
+      <section class="card"><header><h2>Composição do rebanho</h2><span>${A.length} animais</span></header>
+        <div class="stack">${cats.map(([c, col]) => `<span style="width:${A.filter(a => a.categoria === c).length / A.length * 100}%;background:${col}"></span>`).join('')}</div>
+        <table class="tbl"><tbody>${cats.map(([c, col]) => { const n = A.filter(a => a.categoria === c).length; return `<tr><td><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};margin-right:8px"></i>${c}</td><td class="num mono">${n}</td><td class="num muted">${nf(n / A.length * 100)}%</td></tr>`; }).join('')}</tbody></table></section>
+      <section class="card"><header><h2>Próximos partos</h2><span>previsão = IA + 283 dias</span></header>
+        ${prox.length ? `<div class="list">${prox.map(a => { const d = dd(prevParto(a), HOJE); return `<div class="li" onclick="ficha(${a.id})"><span><span class="brinco">${esc(a.brinco)}</span> <span class="nm">${esc(a.nome || '')}</span><br><small>${a.categoria} · touro ${esc(a.touro_ultima_ia || '—')}</small></span><span style="text-align:right"><b class="mono">${fd(prevParto(a))}</b><br>${pill(d < 0 ? 'atrasado ' + (-d) + ' d' : d === 0 ? 'hoje' : 'em ' + d + ' dias', d <= 21 ? 'warn' : 'mute')}</span></div>`; }).join('')}</div>` : '<div class="empty">Nenhuma vaca prenhe registrada.</div>'}</section>
+    </div>`;
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar o painel</b>${esc(e.message)}<br><button class="btn" onclick="carregar()">Tentar de novo</button></div></div>`; }
+}
+</script>
+</body>
+</html>

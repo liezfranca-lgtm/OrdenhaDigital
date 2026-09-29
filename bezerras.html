@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Bezerras e novilhas</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script src="animal.js"></script>
+<script>
+const PESO_ALVO_IA = 330, PESO_NASCER = 35;
+(async () => { if (!await iniciarPagina('bezerras')) return; window.aoSalvar = carregar; carregar(); })();
+
+const idadeD = a => a.data_nascimento ? dd(HOJE, pd(a.data_nascimento)) : null;
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    await carregarBase();
+    const B = BASE.animais.filter(a => a.categoria === 'Bezerra').sort((a, b) => (b.data_nascimento || '').localeCompare(a.data_nascimento || ''));
+    const N = BASE.animais.filter(a => a.categoria === 'Novilha').sort((a, b) => (a.data_nascimento || '').localeCompare(b.data_nascimento || ''));
+    const aleit = B.filter(b => !b.data_desmama);
+    const gmds = B.filter(b => b.peso && idadeD(b) > 0).map(b => (b.peso - PESO_NASCER) / idadeD(b));
+    main.innerHTML = head('Bezerras e novilhas', 'Cria e recria: colostro, aleitamento, desmama, vacina B19, peso e idade para a primeira inseminação.', `<button class="btn pri" onclick="formAnimal(null,'Bezerra')">Cadastrar bezerra</button>`) +
+    `<div class="kpis">
+      ${kpi('Bezerras', B.length, 'fêmeas em cria')}
+      ${kpi('Em aleitamento', aleit.length, nf(aleit.reduce((s, b) => s + Number(b.leite_aleitamento || 0), 0)) + ' L de leite por dia')}
+      ${kpi('Ganho médio', gmds.length ? nf(gmds.reduce((s, x) => s + x, 0) / gmds.length * 1000) : '—', 'g/dia desde o nascimento · meta 600', gmds.length ? 'g' : '')}
+      ${kpi('Novilhas', N.length, N.filter(n => n.situacao_reprodutiva === 'Prenhe').length + ' prenhes · ' + N.filter(n => n.peso >= PESO_ALVO_IA && !['Prenhe', 'Inseminada'].includes(n.situacao_reprodutiva)).length + ' no peso de IA')}
+    </div>
+    <section class="card mb"><header><h2>Bezerreiro</h2><span>desmama aos 60 dias · B19 entre 3 e 8 meses</span></header>
+      ${B.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Bezerra</th><th>Mãe</th><th>Nascimento</th><th class="num">Idade</th><th class="num">Peso</th><th class="num">Leite/dia</th><th>Colostro</th><th>B19</th><th>Situação</th><th></th></tr></thead><tbody>
+      ${B.map(b => { const d = idadeD(b), m = b.mae_id ? BASE.porId.get(b.mae_id) : null;
+        const sit = b.data_desmama ? pill('desmamada ' + fd(b.data_desmama), 'mute') : d != null && d >= 60 ? pill('desmamar', 'warn') : pill('aleitamento' + (b.data_nascimento ? ' · desmama ' + fd(addD(pd(b.data_nascimento), 60)) : ''), 'info');
+        const b19 = b.data_b19 ? pill('vacinada ' + fd(b.data_b19), 'ok') : d != null && d >= 240 ? pill('fora da idade', 'bad') : d != null && d >= 90 ? pill('vacinar', 'warn') : pill('aos 3 meses', 'mute');
+        return `<tr><td class="click" onclick="ficha(${b.id})" style="cursor:pointer">${animLink(b)}</td><td class="muted">${m ? esc(m.brinco) : '—'}</td><td class="mono">${fdy(b.data_nascimento)}</td><td class="num mono">${d != null ? d + ' d' : '—'}</td><td class="num mono">${b.peso ? nf(b.peso) + ' kg' : '—'}</td><td class="num mono">${!b.data_desmama && b.leite_aleitamento ? nf(b.leite_aleitamento, 1) + ' L' : '—'}</td><td>${b.colostro_ok === true ? pill('ok', 'ok') : b.colostro_ok === false ? pill('não recebeu', 'bad') : pill('sem registro', 'mute')}</td><td>${b19}</td><td>${sit}</td>
+        <td style="white-space:nowrap"><button class="btn sm" onclick="formPeso(${b.id})">Pesar</button> ${!b.data_desmama ? `<button class="btn sm" onclick="formDesmama(${b.id})">Desmamar</button> ` : ''}${!b.data_b19 ? `<button class="btn sm" onclick="formB19(${b.id})">B19</button> ` : ''}${b.data_desmama && d >= 180 ? `<button class="btn sm" onclick="passarNovilha(${b.id})">Passar p/ novilha</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Nenhuma bezerra no bezerreiro. Partos de fêmea registrados em Reprodução cadastram a bezerra sozinhos.</div>'}</section>
+    <section class="card"><header><h2>Novilhas</h2><span>1ª inseminação com cerca de ${PESO_ALVO_IA} kg e 15 meses</span></header>
+      ${N.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Novilha</th><th>Raça</th><th class="num">Idade</th><th class="num">Peso</th><th style="min-width:120px">Peso-alvo</th><th>Situação</th><th></th></tr></thead><tbody>
+      ${N.map(n => `<tr><td class="click" onclick="ficha(${n.id})" style="cursor:pointer">${animLink(n)}</td><td class="muted">${esc(n.raca || '—')}</td><td class="num mono">${idadeTxt(n.data_nascimento)}</td><td class="num mono">${n.peso ? nf(n.peso) + ' kg' : '—'}</td><td>${n.peso ? `<div class="meter" title="${nf(n.peso / PESO_ALVO_IA * 100)}% do peso-alvo"><span style="width:${Math.min(100, n.peso / PESO_ALVO_IA * 100)}%;background:${n.peso >= PESO_ALVO_IA ? 'var(--ok)' : 'var(--warn)'}"></span></div>` : '<span class="muted">pesar</span>'}</td><td>${situacao(n)}</td><td style="white-space:nowrap"><button class="btn sm" onclick="formPeso(${n.id})">Pesar</button> <button class="btn sm" onclick="formEvento(${n.id})">Evento</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nenhuma novilha cadastrada.</div>'}</section>`;
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar as bezerras</b>${esc(e.message)}</div></div>`; }
+}
+
+function formPeso(id) {
+  const a = BASE.porId.get(id), bz = a.categoria === 'Bezerra' && !a.data_desmama;
+  abrirModal({
+    titulo: 'Pesar · ' + esc(a.brinco),
+    corpo: `<label>Peso (kg)<input name="peso" id="fpe-peso" type="number" step="0.1" min="0" required value="${a.peso || ''}"></label><label>Data<input name="data" id="fpe-data" type="date" value="${iso(HOJE)}" required></label>
+    ${bz ? `<label>Leite por dia (L)<input name="leite" id="fpe-leite" type="number" step="0.5" min="0" value="${a.leite_aleitamento || ''}"></label>` : ''}
+    ${a.categoria === 'Novilha' && a.situacao_reprodutiva === 'Em recria' ? `<label class="chk full"><input type="checkbox" name="apta" id="fpe-apta"> Liberar para inseminação (Apta p/ IA)</label>` : ''}`,
+    salvar: async f => {
+      const up = { peso: +f.peso }; if (bz && f.leite !== '') up.leite_aleitamento = +f.leite; if (f.apta) up.situacao_reprodutiva = 'Apta p/ IA';
+      await q(sb.from('animais').update(up).eq('id', id));
+      await registrarEvento(id, f.data, 'Pesagem corporal', nf(+f.peso, 1) + ' kg');
+      await depoisDeSalvar(`${a.nome || a.brinco}: ${nf(+f.peso, 1)} kg`);
+    }
+  });
+}
+function formDesmama(id) {
+  const a = BASE.porId.get(id);
+  abrirModal({
+    titulo: 'Desmamar · ' + esc(a.brinco),
+    corpo: `<label>Data<input name="data" id="fd-data" type="date" value="${iso(HOJE)}" required></label><label>Peso na desmama (kg)<input name="peso" id="fd-peso" type="number" step="0.1" min="0"></label>`,
+    salvar: async f => {
+      const up = { data_desmama: f.data, leite_aleitamento: 0 }; if (f.peso) up.peso = +f.peso;
+      await q(sb.from('animais').update(up).eq('id', id));
+      await registrarEvento(id, f.data, 'Desmama', f.peso ? nf(+f.peso, 1) + ' kg' : '');
+      await depoisDeSalvar(`${a.nome || a.brinco} desmamada`);
+    }
+  });
+}
+function formB19(id) {
+  const a = BASE.porId.get(id);
+  abrirModal({
+    titulo: 'Vacina B19 · ' + esc(a.brinco),
+    corpo: `<label>Data<input name="data" id="fb-data" type="date" value="${iso(HOJE)}" required></label><label>Veterinário / atestado<input name="obs" id="fb-obs"></label>
+    <div class="hint">Vacina obrigatória contra brucelose, aplicada por veterinário cadastrado em fêmeas de 3 a 8 meses.</div>`,
+    salvar: async f => {
+      await q(sb.from('animais').update({ data_b19: f.data }).eq('id', id));
+      await registrarEvento(id, f.data, 'Vacina B19', f.obs.trim());
+      await depoisDeSalvar(`B19 registrada para ${a.nome || a.brinco}`);
+    }
+  });
+}
+async function passarNovilha(id) {
+  const a = BASE.porId.get(id), l = lotesTipo('novilhas')[0];
+  try {
+    await q(sb.from('animais').update({ categoria: 'Novilha', situacao_reprodutiva: 'Em recria', lote_id: l ? l.id : a.lote_id }).eq('id', id));
+    await registrarEvento(id, iso(HOJE), 'Mudança de categoria', 'Bezerra → Novilha');
+    await depoisDeSalvar(`${a.nome || a.brinco} agora é novilha`);
+  } catch (e) { toast('Erro: ' + e.message, true); }
+}
+</script>
+</body>
+</html>

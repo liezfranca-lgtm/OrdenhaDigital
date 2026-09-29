@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Nutrição e estoque</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script src="animal.js"></script>
+<script>
+let NUT = null;
+(async () => { if (!await iniciarPagina('nutricao')) return; window.aoSalvar = carregar; carregar(); })();
+
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    await carregarBase();
+    NUT = await carregarNutricao();
+    const movs = await q(sb.from('insumo_movimentos').select('*').order('data', { ascending: false }).order('id', { ascending: false }).limit(20));
+    const { insumos, dietas, cab, insPorId, custoLote, custoDia, criticos } = NUT;
+    const prodLote = id => lact().filter(a => a.lote_id === id).reduce((s, a) => s + (prodAtual(a) || 0), 0);
+    const prodTot = lact().reduce((s, a) => s + (prodAtual(a) || 0), 0);
+    main.innerHTML = head('Nutrição e estoque', 'Dieta de cada lote, custo por cabeça e por litro, e quantos dias o estoque de cada insumo ainda dura.',
+      `<button class="btn" onclick="formInsumo()">Cadastrar insumo</button><button class="btn pri" onclick="formBaixa()" ${dietas.length ? '' : 'disabled title="Cadastre as dietas primeiro"'}>Baixar consumo das dietas</button>`) +
+    `<div class="kpis">
+      ${kpi('Custo alimentar por dia', custoDia ? brl(custoDia, 0) : '—', 'todo o rebanho, pelas dietas')}
+      ${kpi('Custo por litro', custoDia && prodTot ? brl(custoDia / prodTot) : '—', 'alimentação ÷ leite pesado')}
+      ${kpi('Insumos em alerta', criticos.length, 'menos de 15 dias de estoque')}
+      ${kpi('Valor em estoque', brl(insumos.reduce((s, i) => s + Number(i.estoque) * Number(i.preco), 0), 0), insumos.length + ' insumos cadastrados')}
+    </div>
+    <section class="card mb"><header><h2>Dietas por lote</h2><span>kg de matéria natural por cabeça por dia</span><button class="btn sm" onclick="formLote()">Novo lote</button></header>
+      <div class="scroll"><table class="tbl"><thead><tr><th>Lote</th><th class="num">Cabeças</th><th>Dieta</th><th class="num">R$/cab/dia</th><th class="num">R$/lote/dia</th><th class="num">R$/litro</th><th></th></tr></thead><tbody>
+      ${BASE.lotes.filter(l => l.ativo).map(l => { const ds = dietas.filter(d => d.lote_id === l.id), c = custoLote(l.id), pl = prodLote(l.id);
+        return `<tr><td><b>${esc(l.nome)}</b></td><td class="num mono">${cab[l.id] || 0}</td><td class="muted">${ds.length ? ds.map(d => `${esc(insPorId.get(d.insumo_id)?.nome || '?')} ${nf(d.kg_cab_dia, d.kg_cab_dia < 1 ? 2 : 1)}`).join(' · ') : 'sem dieta'}</td><td class="num mono">${ds.length ? brl(c) : '—'}</td><td class="num mono">${ds.length ? brl(c * (cab[l.id] || 0)) : '—'}</td><td class="num mono">${ds.length && pl ? brl(c * (cab[l.id] || 0) / pl) : '—'}</td><td style="white-space:nowrap"><button class="btn sm" onclick="formDieta(${l.id})" ${insumos.length ? '' : 'disabled title="Cadastre os insumos primeiro"'}>Editar dieta</button> <button class="btn sm" onclick="formLote(${l.id})">Renomear</button></td></tr>`; }).join('')}</tbody></table></div></section>
+    <section class="card mb"><header><h2>Estoque de insumos</h2><span>alerta abaixo de 15 dias</span></header>
+      ${insumos.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Insumo</th><th class="num">Estoque</th><th class="num">Consumo/dia</th><th class="num">Dias</th><th style="min-width:130px">Cobertura</th><th class="num">Preço</th><th></th></tr></thead><tbody>
+      ${insumos.map(i => { const d = i.dias, col = d == null ? 'var(--cost)' : d < 15 ? 'var(--bad)' : d < 30 ? 'var(--warn)' : 'var(--ok)';
+        return `<tr><td><b>${esc(i.nome)}</b></td><td class="num mono">${nf(i.estoque, Number(i.estoque) < 10 ? 1 : 0)} ${esc(i.unidade)}</td><td class="num mono">${i.consumo ? nf(i.consumo, i.consumo < 10 ? 1 : 0) + ' ' + esc(i.unidade) : '—'}</td><td class="num mono">${d != null ? nf(Math.max(d, 0)) : '—'}</td><td><div class="meter"><span style="width:${d == null ? 0 : Math.max(0, Math.min(100, d / 90 * 100))}%;background:${col}"></span></div></td><td class="num mono">${brl(i.preco)}/${esc(i.unidade)}</td><td style="white-space:nowrap"><button class="btn sm" onclick="formMov(${i.id},'entrada')">Entrada</button> <button class="btn sm" onclick="formMov(${i.id},'saida')">Saída</button> <button class="btn sm" onclick="formInsumo(${i.id})">Editar</button></td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Cadastre os insumos (silagem, concentrado, núcleo mineral…) para montar as dietas e controlar o estoque.</div>'}</section>
+    <section class="card"><header><h2>Movimentações recentes</h2></header>
+      ${movs.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Data</th><th>Insumo</th><th>Tipo</th><th class="num">Quantidade</th><th>Obs.</th><th></th></tr></thead><tbody>${movs.map(m => { const i = insPorId.get(m.insumo_id); return `<tr><td class="mono">${fd(m.data)}</td><td>${esc(i ? i.nome : '—')}</td><td>${m.tipo === 'entrada' ? pill('entrada', 'ok') : m.tipo === 'saida' ? pill('saída', 'warn') : pill('ajuste', 'mute')}</td><td class="num mono">${nf(m.quantidade, 1)} ${esc(i ? i.unidade : '')}</td><td class="muted">${esc(m.observacao || '')}</td><td>${m.tipo !== 'ajuste' ? `<button class="btn sm danger" onclick="excluirMov(${m.id})">Desfazer</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Nenhuma movimentação ainda.</div>'}</section>`;
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar a nutrição</b>${esc(e.message)}</div></div>`; }
+}
+
+function formInsumo(id) {
+  const i = id ? NUT.insPorId.get(id) : null;
+  abrirModal({
+    titulo: i ? 'Editar insumo' : 'Cadastrar insumo',
+    corpo: `<label class="full">Nome<input name="nome" id="fi-nome" required value="${i ? esc(i.nome) : ''}" placeholder="Ex.: Silagem de milho"></label>
+    <label>Unidade<select name="unidade" id="fi-un">${['kg', 't', 'saco', 'L'].map(u => `<option ${i && i.unidade === u ? 'selected' : ''}>${u}</option>`).join('')}</select></label>
+    <label>Preço por unidade (R$)<input name="preco" id="fi-preco" type="number" step="0.01" min="0" value="${i ? i.preco : ''}"></label>
+    ${i ? `<label>Estoque atual (ajuste)<input name="estoque" id="fi-est" type="number" step="0.01" value="${i.estoque}"></label><label class="chk"><input type="checkbox" name="inativar" id="fi-inat"> Não uso mais este insumo</label>` : `<label class="full">Estoque inicial<input name="estoque" id="fi-est" type="number" step="0.01" min="0" value="0"></label>`}
+    <div class="hint">A dieta é lançada em kg por cabeça. Use a unidade kg para os insumos das dietas.</div>`,
+    salvar: async f => {
+      const reg = { nome: f.nome.trim(), unidade: f.unidade, preco: +f.preco || 0 };
+      let insId = id;
+      if (i) { if (f.inativar) reg.ativo = false; await q(sb.from('insumos').update(reg).eq('id', id)); }
+      else insId = (await q(sb.from('insumos').insert(reg).select().single())).id;
+      if (f.estoque !== '' && (!i || +f.estoque !== Number(i.estoque))) await q(sb.from('insumo_movimentos').insert({ insumo_id: insId, data: iso(HOJE), tipo: 'ajuste', quantidade: +f.estoque, observacao: i ? 'Ajuste de estoque' : 'Estoque inicial' }));
+      await depoisDeSalvar('Insumo salvo');
+    }
+  });
+}
+function formMov(id, tipo) {
+  const i = NUT.insPorId.get(id);
+  abrirModal({
+    titulo: (tipo === 'entrada' ? 'Entrada (compra) · ' : 'Saída · ') + esc(i.nome),
+    corpo: `<label>Quantidade (${esc(i.unidade)})<input name="qtd" id="fmv-qtd" type="number" step="0.01" min="0" required></label><label>Data<input name="data" id="fmv-data" type="date" value="${iso(HOJE)}" required></label>
+    ${tipo === 'entrada' ? `<label>Preço por ${esc(i.unidade)} (R$)<input name="preco" id="fmv-preco" type="number" step="0.01" min="0" value="${i.preco}"></label><label>Fornecedor / NF<input name="obs" id="fmv-obs"></label>
+    <label class="chk full"><input type="checkbox" name="lancar" id="fmv-lancar" checked> Lançar a compra no Financeiro (despesa de alimentação)</label>` : `<label class="full">Motivo<input name="obs" id="fmv-obs" placeholder="Ex.: perda, uso fora da dieta"></label>`}`,
+    salvar: async f => {
+      await q(sb.from('insumo_movimentos').insert({ insumo_id: id, data: f.data, tipo, quantidade: +f.qtd, valor_unitario: tipo === 'entrada' ? (+f.preco || null) : null, observacao: f.obs.trim() || null }));
+      if (tipo === 'entrada' && f.lancar && +f.preco > 0) await q(sb.from('lancamentos').insert({ data: f.data, tipo: 'despesa', categoria: 'Alimentação', descricao: `${i.nome} · ${nf(+f.qtd)} ${i.unidade}${f.obs.trim() ? ' · ' + f.obs.trim() : ''}`, valor: +f.qtd * +f.preco }));
+      await depoisDeSalvar(`${tipo === 'entrada' ? 'Entrada' : 'Saída'} de ${nf(+f.qtd)} ${i.unidade} registrada`);
+    }
+  });
+}
+function formBaixa() {
+  const usados = NUT.insumos.filter(i => i.consumo > 0);
+  abrirModal({
+    titulo: 'Baixar consumo das dietas',
+    corpo: `<label>Data<input name="data" id="fbx-data" type="date" value="${iso(HOJE)}" required></label><label>Quantos dias<input name="dias" id="fbx-dias" type="number" min="1" value="1" required oninput="document.querySelectorAll('[data-cons]').forEach(td=>td.textContent=(td.dataset.cons*(+this.value||0)).toLocaleString('pt-BR',{maximumFractionDigits:1}))"></label>
+    <div class="full scroll"><table class="tbl"><thead><tr><th>Insumo</th><th class="num">Por dia</th><th class="num">Baixa</th></tr></thead><tbody>${usados.map(i => `<tr><td>${esc(i.nome)}</td><td class="num mono">${nf(i.consumo, 1)} ${esc(i.unidade)}</td><td class="num mono" data-cons="${i.consumo}">${nf(i.consumo, 1)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="hint">Desconta do estoque o que as dietas consomem com o número de cabeças de hoje em cada lote.</div>`,
+    textoSalvar: 'Dar baixa',
+    salvar: async f => {
+      const n = +f.dias || 1;
+      await q(sb.from('insumo_movimentos').insert(usados.map(i => ({ insumo_id: i.id, data: f.data, tipo: 'saida', quantidade: +(i.consumo * n).toFixed(2), observacao: `Consumo das dietas · ${n} dia(s)` }))));
+      await depoisDeSalvar(`Baixa de ${n} dia(s) de consumo feita`);
+    }
+  });
+}
+function excluirMov(id) {
+  confirmar('Desfazer movimentação', 'Desfazer esta movimentação? O estoque volta ao que era antes dela. Se a compra foi lançada no Financeiro, exclua lá também.', async () => {
+    await q(sb.from('insumo_movimentos').delete().eq('id', id)); await depoisDeSalvar('Movimentação desfeita');
+  }, 'Desfazer');
+}
+function formDieta(loteId) {
+  const l = BASE.lotePorId.get(loteId), atual = new Map(NUT.dietas.filter(d => d.lote_id === loteId).map(d => [d.insumo_id, d.kg_cab_dia]));
+  abrirModal({
+    titulo: 'Dieta · ' + esc(l.nome),
+    corpo: `<div class="full scroll"><table class="tbl"><thead><tr><th>Insumo</th><th class="num">Preço</th><th>kg/cab/dia</th></tr></thead><tbody>${NUT.insumos.map(i => `<tr><td>${esc(i.nome)}</td><td class="num mono muted">${brl(i.preco)}/${esc(i.unidade)}</td><td><input name="i_${i.id}" id="i_${i.id}" type="number" step="0.01" min="0" value="${atual.get(i.id) ?? ''}"></td></tr>`).join('')}</tbody></table></div>
+    <div class="hint">Deixe em branco o que o lote não come.</div>`,
+    salvar: async f => {
+      await q(sb.from('dietas').delete().eq('lote_id', loteId));
+      const regs = NUT.insumos.filter(i => +f['i_' + i.id] > 0).map(i => ({ lote_id: loteId, insumo_id: i.id, kg_cab_dia: +f['i_' + i.id] }));
+      if (regs.length) await q(sb.from('dietas').insert(regs));
+      await depoisDeSalvar('Dieta salva');
+    }
+  });
+}
+function formLote(id) {
+  const l = id ? BASE.lotePorId.get(id) : null;
+  const tipos = [['lactacao', 'Lactação'], ['pre_parto', 'Pré-parto'], ['secas', 'Vacas secas'], ['novilhas', 'Novilhas'], ['bezerras', 'Bezerras'], ['outro', 'Outro']];
+  abrirModal({
+    titulo: l ? 'Editar lote' : 'Novo lote',
+    corpo: `<label class="full">Nome<input name="nome" id="fl-nome" required value="${l ? esc(l.nome) : ''}"></label>
+    <label>Tipo<select name="tipo" id="fl-tipo">${tipos.map(([v, t]) => `<option value="${v}" ${l && l.tipo === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label><label>Ordem<input name="ordem" id="fl-ordem" type="number" value="${l ? l.ordem : BASE.lotes.length + 1}"></label>
+    ${l ? `<label class="chk full"><input type="checkbox" name="inativar" id="fl-inat"> Desativar este lote</label>` : ''}
+    <div class="hint">Nos lotes de lactação, a ordem define alta, média e fim de lactação para a sugestão automática de lote.</div>`,
+    salvar: async f => {
+      const reg = { nome: f.nome.trim(), tipo: f.tipo, ordem: +f.ordem || 0 };
+      if (l) { if (f.inativar) reg.ativo = false; await q(sb.from('lotes').update(reg).eq('id', id)); }
+      else await q(sb.from('lotes').insert(reg));
+      await depoisDeSalvar('Lote salvo');
+    }
+  });
+}
+</script>
+</body>
+</html>
