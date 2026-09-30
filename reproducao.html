@@ -50,13 +50,18 @@ async function carregar() {
     <div class="grid g2e">
       <section class="card"><header><h2>Botijão de sêmen</h2><button class="btn sm" onclick="formTouro()">Cadastrar touro</button></header>
         ${BASE.touros.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Touro</th><th>Raça</th><th class="num">Doses</th><th class="num">R$/dose</th><th></th></tr></thead><tbody>
-        ${BASE.touros.filter(t => t.ativo).map(t => `<tr><td><b>${esc(t.codigo)}</b>${t.sexado ? ' ' + pill('sexado', 'acc') : ''}<br><small class="muted">${esc(t.central || '')}</small></td><td class="muted">${esc(t.raca || '—')}</td><td class="num mono">${t.doses} ${t.doses <= 3 ? pill('repor', 'warn') : ''}</td><td class="num mono">${brl(t.preco_dose)}</td><td><button class="btn sm" data-ajuda="Registra a chegada de doses de sêmen deste touro no botijão. Pode lançar a compra no Financeiro." onclick="formDoses(${t.id})">Entrada</button> <button class="btn sm" onclick="formTouro(${t.id})">Editar</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Cadastre os touros do botijão para dar baixa automática a cada inseminação.</div>'}</section>
+        ${BASE.touros.filter(t => t.ativo).map(t => `<tr><td><b>${esc(t.codigo)}</b>${t.sexado ? ' ' + pill('sexado', 'acc') : ''}<br><small class="muted">${esc(t.central || '')}</small></td><td class="muted">${esc(t.raca || '—')}</td><td class="num mono">${t.doses} ${t.doses <= 3 ? pill('repor', 'warn') : ''}</td><td class="num mono">${brl(t.preco_dose)}</td><td><button class="btn sm" data-ajuda="Registra a chegada de doses de sêmen deste touro no botijão. Pode lançar a compra no Financeiro." onclick="formDoses(${t.id})">Entrada</button> <button class="btn sm" onclick="formTouro(${t.id})">Editar</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Cadastre os touros do botijão para dar baixa automática a cada inseminação.</div>'}
+        ${BASE.touros.filter(t => !t.ativo).map(t => ({ id: t.id, nome: t.codigo, doses: t.doses })).length ? `<div class="sec-t">Touros fora do botijão</div><div class="list">${BASE.touros.filter(t => !t.ativo).map(t => ({ id: t.id, nome: t.codigo, doses: t.doses })).map(x => `<div class="li" style="cursor:default"><span><span class="nm">${esc(x.nome)}</span><br><small>${x.doses} doses</small></span><button class="btn sm" onclick="reativarTouro(${x.id})">Reativar</button></div>`).join('')}</div>` : ''}</section>
       <section class="card"><header><h2>Eventos recentes</h2><span>últimos 45 dias</span></header>
         ${eventos.length ? `<div class="scroll"><table class="tbl"><tbody>${eventos.map(e => { const a = BASE.porId.get(e.animal_id); return `<tr ${a ? `class="click" onclick="ficha(${a.id})"` : ''}><td class="mono">${fd(e.data)}</td><td>${a ? animLink(a) : '<span class="muted">animal fora do rebanho</span>'}</td><td><b>${esc(e.tipo)}</b><br><small class="muted">${esc(e.detalhe || '')}</small></td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Nenhum evento reprodutivo nos últimos 45 dias.</div>'}</section>
     </div>`;
   } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar a reprodução</b>${esc(e.message)}</div></div>`; }
 }
 
+async function reativarTouro(id) {
+  try { await q(sb.from('touros').update({ ativo: true }).eq('id', id)); await depoisDeSalvar('Touro de volta ao botijão'); }
+  catch (e) { toast('Não foi possível reativar: ' + e.message, true); }
+}
 function formTouro(id) {
   const t = id ? BASE.touros.find(x => x.id === id) : null;
   abrirModal({
@@ -65,7 +70,7 @@ function formTouro(id) {
     <label>Central<input name="central" id="tt-central" value="${t ? esc(t.central || '') : ''}"></label><label>Preço por dose (R$)<input name="preco" id="tt-preco" type="number" step="0.01" min="0" value="${t ? t.preco_dose : ''}"></label>
     ${t ? `<label>Doses no botijão<input name="doses" id="tt-doses" type="number" min="0" value="${t.doses}"></label>` : `<label>Doses iniciais<input name="doses" id="tt-doses" type="number" min="0" value="0"></label>`}
     <label class="chk"><input type="checkbox" name="sexado" id="tt-sex" ${t && t.sexado ? 'checked' : ''}> Sêmen sexado (fêmea)</label>
-    ${t ? `<label class="chk full"><input type="checkbox" name="inativar" id="tt-inat"> Tirar do botijão (não aparece mais nas listas)</label>` : ''}`,
+    ${t ? `<label class="chk full"><input type="checkbox" name="inativar" id="tt-inat"> Tirar do botijão (some das listas, mas pode ser reativado depois)</label>` : ''}`,
     salvar: async f => {
       const reg = { codigo: f.codigo.trim(), raca: f.raca.trim() || null, central: f.central.trim() || null, preco_dose: +f.preco || 0, doses: +f.doses || 0, sexado: !!f.sexado };
       if (t) { if (f.inativar) reg.ativo = false; await q(sb.from('touros').update(reg).eq('id', id)); }

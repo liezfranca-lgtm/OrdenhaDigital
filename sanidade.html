@@ -24,6 +24,7 @@ async function carregar() {
   try {
     await carregarBase();
     MANEJOS = await carregarManejos();
+    const manInativos = await q(sb.from('manejos_sanitarios').select('id,nome,frequencia_dias').eq('ativo', false).order('nome'));
     const T = BASE.tratamentos, ativos = T.filter(t => pd(t.data_liberacao) > HOJE || pd(addD(pd(t.data_inicio), t.dias_aplicacao)) > HOJE);
     const hist = T.filter(t => pd(t.data_inicio) >= addD(HOJE, -90)).sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
     const L = lact(), ccsA = L.filter(a => ccsAtual(a) > 500).sort((a, b) => ccsAtual(b) - ccsAtual(a));
@@ -42,7 +43,8 @@ async function carregar() {
     <section class="card mb"><header><h2>Calendário sanitário</h2><span>próxima data calculada pela frequência</span></header><div class="scroll"><table class="tbl"><thead><tr><th>Vacina / manejo</th><th>Grupo</th><th>Última</th><th>Próxima</th><th>Frequência</th><th>Situação</th><th></th></tr></thead><tbody>
     ${MANEJOS.map(m => `<tr><td><b>${esc(m.nome)}</b></td><td class="muted">${esc(m.grupo || '')}</td><td class="mono">${fdy(m.ult)}</td><td class="mono">${m.prox ? fdy(m.prox) : '—'}</td><td class="muted">a cada ${m.frequencia_dias} dias</td><td>${pill(m.status[0], m.status[1])}</td><td style="white-space:nowrap"><button class="btn sm" onclick="formAplicacao(${m.id})">Registrar aplicação</button> <button class="btn sm" onclick="formManejo(${m.id})">Editar</button></td></tr>`).join('')}
     <tr><td><b>Brucelose B19</b></td><td class="muted">Bezerras de 3 a 8 meses</td><td colspan="3" class="muted">individual, registrado em Bezerras e novilhas</td><td>${b19.length ? pill(b19.length + ' pendente(s)', 'warn') : pill('Em dia', 'ok')}</td><td><a class="btn sm" href="bezerras.html">Abrir</a></td></tr>
-    </tbody></table></div></section>
+    </tbody></table></div>
+    ${manInativos.length ? `<div class="sec-t">Tirados do calendário</div><div class="list">${manInativos.map(x => `<div class="li" style="cursor:default"><span><span class="nm">${esc(x.nome)}</span><br><small>a cada ${x.frequencia_dias} dias</small></span><button class="btn sm" onclick="reativarManejo(${x.id})">Reativar</button></div>`).join('')}</div>` : ''}</section>
     <div class="grid g2e">
       <section class="card"><header><h2>Tratamentos ativos</h2><span>leite só volta ao tanque depois da liberação</span></header>
         ${ativos.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Animal</th><th>Doença / medicamento</th><th>Libera</th><th></th></tr></thead><tbody>${ativos.map(t => `<tr><td>${nomeAnimal(t.animal_id)}</td><td>${esc(t.doenca)}<br><small class="muted">${esc(t.medicamento)} · ${t.dias_aplicacao} d + ${t.carencia_leite} d de carência</small></td><td>${t.carencia_leite > 0 ? pill(fd(t.data_liberacao), 'bad') : pill('sem carência', 'mute')}</td><td><button class="btn sm danger" onclick="excluirTrat(${t.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nenhum animal em tratamento.</div>'}</section>
@@ -68,13 +70,17 @@ function formAplicacao(id) {
     }
   });
 }
+async function reativarManejo(id) {
+  try { await q(sb.from('manejos_sanitarios').update({ ativo: true }).eq('id', id)); await depoisDeSalvar('Voltou para o calendário'); }
+  catch (e) { toast('Não foi possível reativar: ' + e.message, true); }
+}
 function formManejo(id) {
   const m = id ? MANEJOS.find(x => x.id === id) : null;
   abrirModal({
     titulo: m ? 'Editar manejo' : 'Novo manejo no calendário',
     corpo: `<label class="full">Nome<input name="nome" id="fm-nome" required value="${m ? esc(m.nome) : ''}"></label>
     <label>Grupo<input name="grupo" id="fm-grupo" value="${m ? esc(m.grupo || '') : ''}" placeholder="Ex.: Todo o rebanho"></label><label>Repetir a cada (dias)<input name="freq" id="fm-freq" type="number" min="1" required value="${m ? m.frequencia_dias : ''}"></label>
-    ${m ? `<label class="chk full"><input type="checkbox" name="inativar" id="fm-inat"> Tirar do calendário</label>` : ''}`,
+    ${m ? `<label class="chk full"><input type="checkbox" name="inativar" id="fm-inat"> Tirar do calendário (pode ser reativado depois)</label>` : ''}`,
     salvar: async f => {
       const reg = { nome: f.nome.trim(), grupo: f.grupo.trim() || null, frequencia_dias: +f.freq };
       if (m) { if (f.inativar) reg.ativo = false; await q(sb.from('manejos_sanitarios').update(reg).eq('id', id)); }

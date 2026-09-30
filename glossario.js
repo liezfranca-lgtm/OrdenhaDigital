@@ -138,6 +138,10 @@ const TERMOS = {
   'média por ordem de lactação': 'Produção média por número de crias. Vacas de 1ª cria costumam produzir menos que as de 3ª ou 4ª.',
   'classificação completa': 'Todas as vacas em ordem, com todos os números de produção.',
   'nota fiscal': 'Dados da nota fiscal da compra ou venda.',
+  'lotes desativados': 'Lotes escondidos da lista. A dieta fica guardada. Use Reativar para trazer de volta.',
+  'touros fora do botijão': 'Touros tirados do botijão. As doses e o histórico continuam guardados.',
+  'insumos que não são mais usados': 'Alimentos marcados como "não uso mais". O histórico fica guardado.',
+  'tirados do calendário': 'Vacinas ou manejos tirados do calendário. As aplicações antigas continuam guardadas.',
   'animais sem fazenda': 'Animais que ainda não têm fazenda escolhida no cadastro.',
 
   // ---------- cabeçalhos de tabela ----------

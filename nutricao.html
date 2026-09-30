@@ -24,6 +24,7 @@ async function carregar() {
   try {
     await carregarBase();
     NUT = await carregarNutricao();
+    const insInativos = await q(sb.from('insumos').select('id,nome,estoque,unidade').eq('ativo', false).order('nome'));
     const movs = await q(sb.from('insumo_movimentos').select('*').order('data', { ascending: false }).order('id', { ascending: false }).limit(20));
     const { insumos, dietas, cab, insPorId, custoLote, custoDia, criticos } = NUT;
     const prodLote = id => lact().filter(a => a.lote_id === id).reduce((s, a) => s + (prodAtual(a) || 0), 0);
@@ -39,11 +40,13 @@ async function carregar() {
     <section class="card mb"><header><h2>Dietas por lote</h2><span>kg de matéria natural por cabeça por dia</span><button class="btn sm" onclick="formLote()">Novo lote</button></header>
       <div class="scroll"><table class="tbl"><thead><tr><th>Lote</th><th class="num">Cabeças</th><th>Dieta</th><th class="num">R$/cab/dia</th><th class="num">R$/lote/dia</th><th class="num">R$/litro</th><th></th></tr></thead><tbody>
       ${BASE.lotes.filter(l => l.ativo).map(l => { const ds = dietas.filter(d => d.lote_id === l.id), c = custoLote(l.id), pl = prodLote(l.id);
-        return `<tr><td><b>${esc(l.nome)}</b></td><td class="num mono">${cab[l.id] || 0}</td><td class="muted">${ds.length ? ds.map(d => `${esc(insPorId.get(d.insumo_id)?.nome || '?')} ${nf(d.kg_cab_dia, d.kg_cab_dia < 1 ? 2 : 1)}`).join(' · ') : 'sem dieta'}</td><td class="num mono">${ds.length ? brl(c) : '—'}</td><td class="num mono">${ds.length ? brl(c * (cab[l.id] || 0)) : '—'}</td><td class="num mono">${ds.length && pl ? brl(c * (cab[l.id] || 0) / pl) : '—'}</td><td style="white-space:nowrap"><button class="btn sm" onclick="formDieta(${l.id})" ${insumos.length ? '' : 'disabled title="Cadastre os insumos primeiro"'}>Editar dieta</button> <button class="btn sm" onclick="formLote(${l.id})">Renomear</button></td></tr>`; }).join('')}</tbody></table></div></section>
+        return `<tr><td><b>${esc(l.nome)}</b></td><td class="num mono">${cab[l.id] || 0}</td><td class="muted">${ds.length ? ds.map(d => `${esc(insPorId.get(d.insumo_id)?.nome || '?')} ${nf(d.kg_cab_dia, d.kg_cab_dia < 1 ? 2 : 1)}`).join(' · ') : 'sem dieta'}</td><td class="num mono">${ds.length ? brl(c) : '—'}</td><td class="num mono">${ds.length ? brl(c * (cab[l.id] || 0)) : '—'}</td><td class="num mono">${ds.length && pl ? brl(c * (cab[l.id] || 0) / pl) : '—'}</td><td style="white-space:nowrap"><button class="btn sm" onclick="formDieta(${l.id})" ${insumos.length ? '' : 'disabled title="Cadastre os insumos primeiro"'}>Editar dieta</button> <button class="btn sm" onclick="formLote(${l.id})">Renomear</button></td></tr>`; }).join('')}</tbody></table></div>
+      ${BASE.lotes.some(l => !l.ativo) ? `<div class="sec-t">Lotes desativados</div><div class="list">${BASE.lotes.filter(l => !l.ativo).map(l => `<div class="li" style="cursor:default"><span><span class="nm">${esc(l.nome)}</span><br><small>${(cab[l.id] || 0)} animais · ${dietas.filter(d => d.lote_id === l.id).length ? 'dieta guardada' : 'sem dieta'}</small></span><button class="btn sm" onclick="reativarLote(${l.id})">Reativar</button></div>`).join('')}</div>` : ''}</section>
     <section class="card mb"><header><h2>Estoque de insumos</h2><span>alerta abaixo de 15 dias</span></header>
       ${insumos.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Insumo</th><th class="num">Estoque</th><th class="num">Consumo/dia</th><th class="num">Dias</th><th style="min-width:130px">Cobertura</th><th class="num">Preço</th><th></th></tr></thead><tbody>
       ${insumos.map(i => { const d = i.dias, col = d == null ? 'var(--cost)' : d < 15 ? 'var(--bad)' : d < 30 ? 'var(--warn)' : 'var(--ok)';
         return `<tr><td><b>${esc(i.nome)}</b></td><td class="num mono">${nf(i.estoque, Number(i.estoque) < 10 ? 1 : 0)} ${esc(i.unidade)}</td><td class="num mono">${i.consumo ? nf(i.consumo, i.consumo < 10 ? 1 : 0) + ' ' + esc(i.unidade) : '—'}</td><td class="num mono">${d != null ? nf(Math.max(d, 0)) : '—'}</td><td><div class="meter"><span style="width:${d == null ? 0 : Math.max(0, Math.min(100, d / 90 * 100))}%;background:${col}"></span></div></td><td class="num mono">${brl(i.preco)}/${esc(i.unidade)}</td><td style="white-space:nowrap"><button class="btn sm" data-ajuda="Registra uma compra deste insumo: soma no estoque, atualiza o preço e pode lançar a despesa no Financeiro." onclick="formMov(${i.id},'entrada')">Entrada</button> <button class="btn sm" onclick="formMov(${i.id},'saida')">Saída</button> <button class="btn sm" onclick="formInsumo(${i.id})">Editar</button></td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Cadastre os insumos (silagem, concentrado, núcleo mineral…) para montar as dietas e controlar o estoque.</div>'}</section>
+    ${insInativos.length ? `<section class="card mb">${insInativos.length ? `<div class="sec-t">Insumos que não são mais usados</div><div class="list">${insInativos.map(x => `<div class="li" style="cursor:default"><span><span class="nm">${esc(x.nome)}</span><br><small>${nf(x.estoque)} ${esc(x.unidade)} em estoque</small></span><button class="btn sm" onclick="reativarInsumo(${x.id})">Reativar</button></div>`).join('')}</div>` : ''}</section>` : ''}
     <section class="card"><header><h2>Movimentações recentes</h2></header>
       ${movs.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Data</th><th>Insumo</th><th>Tipo</th><th class="num">Quantidade</th><th>Obs.</th><th></th></tr></thead><tbody>${movs.map(m => { const i = insPorId.get(m.insumo_id); return `<tr><td class="mono">${fd(m.data)}</td><td>${esc(i ? i.nome : '—')}</td><td>${m.tipo === 'entrada' ? pill('entrada', 'ok') : m.tipo === 'saida' ? pill('saída', 'warn') : pill('ajuste', 'mute')}</td><td class="num mono">${nf(m.quantidade, 1)} ${esc(i ? i.unidade : '')}</td><td class="muted">${esc(m.observacao || '')}</td><td>${m.tipo !== 'ajuste' ? `<button class="btn sm danger" onclick="excluirMov(${m.id})">Desfazer</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Nenhuma movimentação ainda.</div>'}</section>`;
   } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar a nutrição</b>${esc(e.message)}</div></div>`; }
@@ -116,18 +119,27 @@ function formDieta(loteId) {
     }
   });
 }
+async function reativarInsumo(id) {
+  try { await q(sb.from('insumos').update({ ativo: true }).eq('id', id)); await depoisDeSalvar('Insumo reativado'); }
+  catch (e) { toast('Não foi possível reativar: ' + e.message, true); }
+}
+async function reativarLote(id) {
+  try { await q(sb.from('lotes').update({ ativo: true }).eq('id', id)); await depoisDeSalvar(BASE.lotePorId.get(id).nome + ' reativado'); }
+  catch (e) { toast('Não foi possível reativar: ' + e.message, true); }
+}
 function formLote(id) {
-  const l = id ? BASE.lotePorId.get(id) : null;
+  const l = id ? BASE.lotePorId.get(id) : null, nAnimais = l ? BASE.todosAnimais.filter(a => a.lote_id === id).length : 0;
   const tipos = [['lactacao', 'Lactação'], ['pre_parto', 'Pré-parto'], ['secas', 'Vacas secas'], ['novilhas', 'Novilhas'], ['bezerras', 'Bezerras'], ['outro', 'Outro']];
   abrirModal({
     titulo: l ? 'Editar lote' : 'Novo lote',
     corpo: `<label class="full">Nome<input name="nome" id="fl-nome" required value="${l ? esc(l.nome) : ''}"></label>
     <label>Tipo<select name="tipo" id="fl-tipo">${tipos.map(([v, t]) => `<option value="${v}" ${l && l.tipo === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label><label>Ordem<input name="ordem" id="fl-ordem" type="number" value="${l ? l.ordem : BASE.lotes.length + 1}"></label>
-    ${l ? `<label class="chk full"><input type="checkbox" name="inativar" id="fl-inat"> Desativar este lote</label>` : ''}
+    ${l ? (nAnimais ? `<div class="hint">Este lote tem ${nAnimais} animais. Para desativar, mova os animais para outro lote antes (ficha do animal → Editar, ou Produção → Mover para o lote sugerido).</div>`
+      : `<label class="chk full"><input type="checkbox" name="inativar" id="fl-inat"> Desativar este lote (some da lista, mas pode ser reativado depois)</label>`) : ''}
     <div class="hint">Nos lotes de lactação, a ordem define alta, média e fim de lactação para a sugestão automática de lote.</div>`,
     salvar: async f => {
       const reg = { nome: f.nome.trim(), tipo: f.tipo, ordem: +f.ordem || 0 };
-      if (l) { if (f.inativar) reg.ativo = false; await q(sb.from('lotes').update(reg).eq('id', id)); }
+      if (l) { if (f.inativar && !nAnimais) reg.ativo = false; await q(sb.from('lotes').update(reg).eq('id', id)); }
       else await q(sb.from('lotes').insert(reg));
       await depoisDeSalvar('Lote salvo');
     }

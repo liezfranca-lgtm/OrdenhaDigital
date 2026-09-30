@@ -298,6 +298,7 @@ const AJUDA_BOTOES = {
   'Com nota fiscal': 'Mostra só os lançamentos que têm nota fiscal.',
   'Cadastrar fazenda': 'Cadastra uma propriedade: nome, município, áreas, inscrição estadual e CAR.',
   'Ver só esta fazenda': 'Filtra todas as telas do rebanho para mostrar só os animais desta fazenda. Para voltar, escolha "Todas as fazendas" no filtro do topo.',
+  'Reativar': 'Traz de volta o que foi desativado. Tudo o que estava guardado (animais, dieta, doses, histórico) volta junto.',
   'Alternar tema': 'Troca entre o tema claro e o escuro.',
   'Sair': 'Sai do sistema neste aparelho.',
   'Todos': 'Mostra tudo, sem filtro.',
