@@ -34,9 +34,8 @@ async function carregarBase(opts = {}) {
   const ultPes = new Map(), ultCcs = new Map();
   pesagens.forEach(p => { ultPes.set(p.animal_id, p); if (p.ccs != null) ultCcs.set(p.animal_id, p); });
   const pesos = new Map(); pesosCorp.forEach(p => { if (!pesos.has(p.animal_id)) pesos.set(p.animal_id, []); pesos.get(p.animal_id).push({ data: p.data, peso: Number(p.peso) }); });
-  BASE = { animais, todosAnimais, pesos, lotes, touros, tratamentos, pesagens, ultPes, ultCcs, fazendas, fazenda: opts.todas ? null : fz,
+  BASE = { animais, todosAnimais, pesos, lotes, touros, tratamentos, pesagens, ultPes, ultCcs, fazendas, fazenda: opts.todas ? null : fz, semFiltro: !!opts.todas,
     porId: new Map(animais.map(a => [a.id, a])), lotePorId: new Map(lotes.map(l => [l.id, l])), fazPorId: new Map(fazendas.map(f => [f.id, f])) };
-  montarSeletorFazenda();
   return BASE;
 }
 // Texto para o subtítulo das telas quando uma fazenda está escolhida
@@ -49,11 +48,11 @@ function escolherFazenda(id) {
   try { id ? localStorage.setItem('ordenha-fazenda', id) : localStorage.removeItem('ordenha-fazenda'); } catch (e) {}
   location.reload();
 }
-function montarSeletorFazenda() {
-  const el = document.getElementById('selFazenda'); if (!el) return;
-  const ativas = BASE.fazendas.filter(f => f.ativo), atual = fazendaSelecionada(BASE.fazendas);
-  el.hidden = ativas.length < 2;
-  el.innerHTML = `<label>Fazenda<select onchange="escolherFazenda(this.value)"><option value="">Todas as fazendas</option>${ativas.map(f => `<option value="${f.id}" ${atual && atual.id === f.id ? 'selected' : ''}>${esc(f.nome)}</option>`).join('')}</select></label>`;
+// Filtro de fazenda que vai ao lado dos botões no topo das telas do rebanho (só com 2 fazendas ou mais)
+function seletorFazendaHtml() {
+  if (!BASE || BASE.semFiltro) return '';
+  const ativas = BASE.fazendas.filter(f => f.ativo); if (ativas.length < 2) return '';
+  return `<select class="search sel-faz ${BASE.fazenda ? 'on' : ''}" id="selFazenda" aria-label="Fazenda" onchange="escolherFazenda(this.value)"><option value="">Todas as fazendas</option>${ativas.map(f => `<option value="${f.id}" ${BASE.fazenda && BASE.fazenda.id === f.id ? 'selected' : ''}>${esc(f.nome)}</option>`).join('')}</select>`;
 }
 
 // ---------- regras ----------

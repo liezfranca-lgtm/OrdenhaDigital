@@ -29,7 +29,6 @@ async function iniciarPagina(pagina) {
     <div class="app">
       <aside class="side">
         <div class="brand"><img src="logo-gm.png" alt="GM Agronegócios"><div><b>OrdenhaDigital</b><small>Controle do rebanho leiteiro</small></div></div>
-        <div class="sel-faz" id="selFazenda" hidden></div>
         <nav class="nav">${MENU.map(([p, t]) => `<a href="${p}.html" class="${p === pagina ? 'on' : ''}">${t}</a>`).join('')}</nav>
         <div class="foot"><span id="userEmail"></span>
           <div class="row"><button class="ghost" type="button" onclick="alternarTema()">Alternar tema</button><button class="ghost" type="button" onclick="logout()">Sair</button></div></div>
@@ -64,7 +63,8 @@ const MESES_CURTOS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'S
 const mesTxt = d => { d = pd(d); return MESES_CURTOS[d.getMonth()] + '/' + String(d.getFullYear()).slice(2); };
 function idadeTxt(n) { if (!n) return '—'; const d = dd(HOJE, pd(n)); if (d < 60) return d + ' dias'; const m = Math.floor(d / 30.44); if (m < 24) return m + ' meses'; return Math.floor(m / 12) + 'a ' + (m % 12) + 'm'; }
 const kpi = (l, v, s = '', u = '') => `<div class="kpi"><span class="lbl">${l}</span><span class="val">${v}${u ? `<small>${u}</small>` : ''}</span><span class="sub">${s}</span></div>`;
-const head = (t, p, btns = '') => `<div class="vhead"><div><h1>${t}</h1><p>${p}</p></div><div class="actions">${btns}</div></div>`;
+// O filtro de fazenda (definido em animal.js) aparece ao lado dos botões nas telas do rebanho
+const head = (t, p, btns = '') => `<div class="vhead"><div><h1>${t}</h1><p>${p}</p></div><div class="actions">${typeof seletorFazendaHtml === 'function' ? seletorFazendaHtml() : ''}${btns}</div></div>`;
 
 // ---------- banco ----------
 const sb = supabaseClient;
@@ -174,3 +174,68 @@ function barsChart(rows) {
   });
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Comparativo mensal">${g}</svg>`;
 }
+
+// ---------- siglas: passar o mouse (ou tocar) mostra o significado ----------
+const SIGLAS = {
+  'CCS': 'Contagem de Células Somáticas: mede a saúde do úbere (mastite). Vem da análise de laboratório. Limite no leite do tanque: 500 mil células/mL.',
+  'CBT': 'Contagem Bacteriana Total: mede a higiene da ordenha e o resfriamento do leite. Limite: 300 mil UFC/mL.',
+  'UFC': 'Unidades Formadoras de Colônia: unidade usada para contar bactérias no leite.',
+  'DEL': 'Dias em Lactação: quantos dias se passaram desde o último parto da vaca.',
+  'IEP': 'Intervalo Entre Partos: tempo entre um parto e o seguinte da mesma vaca. Meta: cerca de 13 meses.',
+  'IA': 'Inseminação Artificial.',
+  'TE': 'Transferência de Embrião.',
+  'B19': 'Vacina contra brucelose (amostra B19). Obrigatória para bezerras de 3 a 8 meses, aplicada por veterinário cadastrado.',
+  'IN 76': 'Instrução Normativa 76 do Ministério da Agricultura: define os padrões de qualidade do leite cru (CCS, CBT, temperatura).',
+  'CMT': 'California Mastitis Test: teste rápido feito no curral, com raquete e reagente, para achar mastite em cada quarto do úbere.',
+  'CAR': 'Cadastro Ambiental Rural: registro obrigatório do imóvel rural no órgão ambiental.',
+  'UF': 'Unidade da Federação (estado).',
+  'PB': 'Proteína Bruta: quanto de proteína o alimento tem.',
+  'NF': 'Nota Fiscal.',
+  'GMD': 'Ganho Médio Diário de peso.',
+};
+const _reSigla = new RegExp('(?<![\\wÀ-ÿ])(' + Object.keys(SIGLAS).sort((a, b) => b.length - a.length).map(k => k.replace(' ', '\\s')).join('|') + ')(?![\\wÀ-ÿ])', 'g');
+const _pulaSigla = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'ABBR', 'svg', 'SVG', 'text', 'title']);
+function marcarSiglas(raiz) {
+  if (!raiz || raiz.nodeType !== 1) return;
+  const w = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      for (let p = n.parentNode; p && p !== raiz.parentNode; p = p.parentNode) if (_pulaSigla.has(p.nodeName) || (p.classList && p.classList.contains('sem-sigla'))) return NodeFilter.FILTER_REJECT;
+      _reSigla.lastIndex = 0;
+      return _reSigla.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    }
+  });
+  const nos = []; while (w.nextNode()) nos.push(w.currentNode);
+  nos.forEach(n => {
+    const frag = document.createDocumentFragment(), txt = n.nodeValue; let i = 0;
+    txt.replace(_reSigla, (m, g, pos) => {
+      if (pos > i) frag.appendChild(document.createTextNode(txt.slice(i, pos)));
+      const ab = document.createElement('abbr'); ab.className = 'sig'; ab.tabIndex = 0;
+      ab.dataset.tip = SIGLAS[m.replace(/\s+/, ' ')]; ab.textContent = m; frag.appendChild(ab);
+      i = pos + m.length; return m;
+    });
+    if (i < txt.length) frag.appendChild(document.createTextNode(txt.slice(i)));
+    n.parentNode.replaceChild(frag, n);
+  });
+}
+let _tip;
+function mostrarSigla(el) {
+  if (!_tip) { _tip = document.createElement('div'); _tip.className = 'sig-tip'; _tip.setAttribute('role', 'tooltip'); document.body.appendChild(_tip); }
+  _tip.innerHTML = `<b>${esc(el.textContent)}</b> ${esc(el.dataset.tip)}`; _tip.hidden = false;
+  const r = el.getBoundingClientRect(), t = _tip.getBoundingClientRect();
+  let x = Math.min(Math.max(8, r.left + r.width / 2 - t.width / 2), innerWidth - t.width - 8), y = r.top - t.height - 8;
+  if (y < 8) y = r.bottom + 8;
+  _tip.style.left = x + 'px'; _tip.style.top = y + 'px';
+}
+const esconderSigla = () => { if (_tip) _tip.hidden = true; };
+document.addEventListener('mouseover', e => { const a = e.target.closest && e.target.closest('abbr.sig'); if (a) mostrarSigla(a); });
+document.addEventListener('mouseout', e => { if (e.target.closest && e.target.closest('abbr.sig')) esconderSigla(); });
+document.addEventListener('focusin', e => { if (e.target.matches && e.target.matches('abbr.sig')) mostrarSigla(e.target); });
+document.addEventListener('focusout', esconderSigla);
+document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('abbr.sig'); if (a) { mostrarSigla(a); } else esconderSigla(); });
+addEventListener('scroll', esconderSigla, true);
+// marca as siglas sempre que uma tela, ficha ou formulário é desenhado
+let _pendSigla = false;
+new MutationObserver(() => {
+  if (_pendSigla) return; _pendSigla = true;
+  requestAnimationFrame(() => { _pendSigla = false; marcarSiglas(document.getElementById('main')); marcarSiglas(document.getElementById('layer')); });
+}).observe(document.documentElement, { childList: true, subtree: true });
