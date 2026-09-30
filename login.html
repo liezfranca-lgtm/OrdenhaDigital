@@ -9,9 +9,52 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+/* ---------- abertura: logo entra, flutua com ondas por 5 s, para, boas-vindas, login ---------- */
+.abertura{position:fixed;inset:0;z-index:100;display:grid;place-items:center;overflow:hidden;cursor:pointer;
+  background:radial-gradient(circle at 50% 46%, var(--accent-soft) 0%, var(--bg) 58%)}
+.abertura.sai{animation:ab-sai .8s cubic-bezier(.7,0,.3,1) forwards}
+.ab-palco{position:relative;display:flex;flex-direction:column;align-items:center;gap:min(22px,2.5vh);padding:0 16px}
+.ab-logo{position:relative;width:min(300px,62vw,38vh);aspect-ratio:1;display:grid;place-items:center}
+.ab-logo img{width:100%;height:auto;position:relative;z-index:2;filter:drop-shadow(0 18px 30px rgba(0,120,180,.28));
+  animation:ab-entra 1.1s cubic-bezier(.2,1.4,.4,1) both, ab-flutua 1.3s ease-in-out 1.1s 3 alternate}
+.ab-logo.parou img{animation:ab-assenta .6s ease-out both}
+/* ondas (como uma gota de leite caindo) */
+.ab-onda{position:absolute;inset:6%;border-radius:50%;border:3px solid var(--brand);opacity:0;z-index:1;animation:ab-onda 1.6s ease-out infinite}
+.ab-onda:nth-child(2){animation-delay:.55s}.ab-onda:nth-child(3){animation-delay:1.1s}
+.ab-logo.parou .ab-onda{animation:none;opacity:0}
+.ab-texto{width:min(420px,80vw,55vh);height:auto;opacity:0;transform:translateY(14px)}
+.ab-boas{text-align:center;opacity:0;transform:translateY(14px)}
+.ab-boas h1{font-size:clamp(1.1rem,min(4.6vw,5vh),2.3rem);font-stretch:115%;font-weight:800;color:var(--ink)}
+.ab-boas p{margin:6px 0 0;color:var(--muted);font-size:1rem}
+.ab-mostra{animation:ab-sobe .7s cubic-bezier(.2,.8,.2,1) forwards}
+.ab-pular{position:absolute;right:max(16px, env(safe-area-inset-right));bottom:max(16px, env(safe-area-inset-bottom));background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:6px 14px;font-size:.82rem;cursor:pointer}
+.ab-pular:hover{color:var(--ink);border-color:var(--muted)}
+.login-wrap{opacity:1;transition:opacity .6s ease}
+.login-wrap.escondido{opacity:0}
+
+@keyframes ab-entra{0%{transform:translateY(70vh) scale(.2) rotate(-35deg);opacity:0}60%{opacity:1}100%{transform:translateY(0) scale(1) rotate(0)}}
+@keyframes ab-flutua{0%{transform:translateY(0) rotate(0) scale(1)}35%{transform:translateY(-16px) rotate(-5deg) scale(1.04)}70%{transform:translateY(-6px) rotate(4deg) scale(1.02)}100%{transform:translateY(-18px) rotate(6deg) scale(1.05)}}
+@keyframes ab-assenta{0%{transform:translateY(-18px) rotate(6deg) scale(1.05)}60%{transform:translateY(3px) rotate(-1deg) scale(.98)}100%{transform:translateY(0) rotate(0) scale(1)}}
+@keyframes ab-onda{0%{transform:scale(.55);opacity:.55}100%{transform:scale(1.55);opacity:0}}
+@keyframes ab-sobe{to{opacity:1;transform:translateY(0)}}
+@keyframes ab-sai{to{opacity:0;transform:translateY(-6vh) scale(1.04)}}
+@media (prefers-reduced-motion:reduce){
+  .ab-logo img,.ab-logo.parou img{animation:none}.ab-onda{display:none}.ab-mostra{animation:none;opacity:1;transform:none}.abertura.sai{animation:none;opacity:0}
+}
+</style>
 </head>
 <body>
-<div class="login-wrap">
+<div class="abertura" id="abertura" hidden aria-label="Abertura do sistema">
+  <div class="ab-palco">
+    <div class="ab-logo" id="abLogo"><span class="ab-onda"></span><span class="ab-onda"></span><span class="ab-onda"></span><img src="logo-simbolo.png" alt="GM Agronegócios"></div>
+    <img class="ab-texto" id="abTexto" src="logo-texto.png" alt="">
+    <div class="ab-boas" id="abBoas"><h1>Boas-vindas ao OrdenhaDigital</h1><p>Controle do rebanho leiteiro</p></div>
+  </div>
+  <button class="ab-pular" id="abPular" type="button">Pular</button>
+</div>
+
+<div class="login-wrap" id="loginWrap">
   <form class="login-card form" id="flogin" style="display:flex" novalidate>
     <img src="logo-gm.png" alt="GM Agronegócios">
     <h1>OrdenhaDigital</h1>
@@ -35,7 +78,34 @@ document.getElementById('flogin').addEventListener('submit', async e => {
   if (error) { msg('E-mail ou senha incorretos.'); btn.disabled = false; btn.textContent = 'Entrar'; return; }
   location.href = 'painel.html';
 });
-supabaseClient.auth.getSession().then(({ data: { session } }) => { if (session) location.href = 'painel.html'; });
+
+// ---------- abertura (uma vez por visita; atualizar a página não repete) ----------
+const sessaoPromessa = supabaseClient.auth.getSession().then(r => r.data.session).catch(() => null);
+let jaViu = false; try { jaViu = sessionStorage.getItem('ordenha-abertura') === '1'; } catch (e) {}
+const semMovimento = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ab = document.getElementById('abertura'), wrap = document.getElementById('loginWrap');
+let timers = [], terminou = false;
+
+async function depoisDaAbertura() {
+  if (terminou) return; terminou = true;
+  timers.forEach(clearTimeout);
+  try { sessionStorage.setItem('ordenha-abertura', '1'); } catch (e) {}
+  if (await sessaoPromessa) { location.href = 'painel.html'; return; }   // já logado: vai direto para o painel
+  ab.classList.add('sai'); wrap.classList.remove('escondido');
+  setTimeout(() => { ab.hidden = true; document.getElementById('email').focus(); }, semMovimento ? 0 : 800);
+}
+if (jaViu) {
+  sessaoPromessa.then(s => { if (s) location.href = 'painel.html'; });
+} else {
+  ab.hidden = false; wrap.classList.add('escondido');
+  const T = semMovimento ? { para: 200, boas: 400, fim: 1800 } : { para: 5000, boas: 5300, fim: 7300 };
+  timers.push(setTimeout(() => document.getElementById('abLogo').classList.add('parou'), T.para));          // logo para de se mexer aos 5 s
+  timers.push(setTimeout(() => document.getElementById('abTexto').classList.add('ab-mostra'), T.para));     // aparece o nome da empresa
+  timers.push(setTimeout(() => document.getElementById('abBoas').classList.add('ab-mostra'), T.boas));      // boas-vindas
+  timers.push(setTimeout(depoisDaAbertura, T.fim));                                                         // 2 s depois, login
+  ab.addEventListener('click', depoisDaAbertura);
+  document.addEventListener('keydown', e => { if (!terminou && (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ')) depoisDaAbertura(); });
+}
 </script>
 </body>
 </html>
