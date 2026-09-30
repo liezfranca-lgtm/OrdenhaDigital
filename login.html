@@ -17,16 +17,15 @@
 .ab-palco{position:relative;display:flex;flex-direction:column;align-items:center;gap:min(22px,2.5vh);padding:0 16px}
 .ab-logo{position:relative;width:min(300px,62vw,38vh);aspect-ratio:1;display:grid;place-items:center}
 .ab-logo img{width:100%;height:auto;position:relative;z-index:2;filter:drop-shadow(0 18px 30px rgba(0,120,180,.28));
-  animation:ab-nasce .9s cubic-bezier(.2,1.5,.4,1) 1s both, ab-flutua 1.05s ease-in-out 1.9s 3 alternate}
-.ab-logo.parou img{animation:ab-assenta .6s ease-out both}
+  animation:ab-nasce .8s cubic-bezier(.2,1.3,.4,1) 1.5s both, ab-pula 1.3s ease-in-out 2.6s both}
+.ab-logo.parou img{animation:none}
 /* ondas (como uma gota de leite caindo) */
-.ab-gota{position:absolute;left:50%;top:50%;width:34px;height:46px;margin:-23px 0 0 -17px;z-index:3;
-  background:radial-gradient(circle at 35% 30%, #ffffff 0%, #f4f1e8 55%, #ddd6c6 100%);
-  border-radius:50% 50% 50% 50% / 62% 62% 38% 38%;box-shadow:0 6px 18px rgba(0,0,0,.25);
-  animation:ab-cai 1s cubic-bezier(.55,0,1,.45) both}
-.ab-gota::before{content:"";position:absolute;left:50%;top:-18px;width:0;height:0;margin-left:-9px;border:9px solid transparent;border-bottom:16px solid #fbf9f3;border-top:0}
+.ab-gota{position:absolute;left:50%;top:50%;width:30px;height:30px;margin:-15px 0 0 -15px;z-index:3;animation:ab-cai 1.5s cubic-bezier(.45,.05,.7,.7) both}
+/* gota: quadrado com três cantos redondos e um pontudo, girado para a ponta ficar em cima */
+.ab-gota::after{content:"";position:absolute;inset:0;border-radius:0 50% 50% 50%;transform:rotate(45deg);
+  background:radial-gradient(circle at 60% 60%, #ffffff 0%, #f5f2ea 50%, #d9d2c2 100%);box-shadow:0 6px 16px rgba(0,0,0,.28)}
 .ab-pingo{position:absolute;left:50%;top:50%;width:var(--t);height:var(--t);margin:calc(var(--t) / -2) 0 0 calc(var(--t) / -2);border-radius:50%;z-index:3;
-  background:#faf8f2;box-shadow:0 2px 6px rgba(0,0,0,.2);opacity:0;animation:ab-espirra .75s cubic-bezier(.2,.7,.4,1) 1s both}
+  background:#faf8f2;box-shadow:0 2px 6px rgba(0,0,0,.2);opacity:0;animation:ab-espirra 1s cubic-bezier(.25,.6,.4,1) 1.5s both}
 .ab-texto{width:min(420px,80vw,55vh);height:auto;opacity:0;transform:translateY(14px)}
 .ab-boas{text-align:center;opacity:0;transform:translateY(14px)}
 .ab-boas h1{font-size:clamp(1.1rem,min(4.6vw,5vh),2.3rem);font-stretch:115%;font-weight:800;color:var(--ink)}
@@ -37,11 +36,10 @@
 .login-wrap{opacity:1;transition:opacity .6s ease}
 .login-wrap.escondido{opacity:0}
 
-@keyframes ab-cai{0%{transform:translateY(-75vh) scaleY(1.25);opacity:1}88%{transform:translateY(0) scaleY(1.2);opacity:1}100%{transform:translateY(8px) scale(1.7,.35);opacity:0}}
+@keyframes ab-cai{0%{transform:translateY(-70vh) scaleY(1.1);opacity:0}8%{opacity:1}90%{transform:translateY(0) scaleY(1.1);opacity:1}100%{transform:translateY(5px) scale(1.35,.55);opacity:0}}
 @keyframes ab-espirra{0%{transform:translate(0,0) scale(.4);opacity:0}8%{opacity:1}55%{opacity:1}100%{transform:translate(var(--x),var(--y)) scale(1);opacity:0}}
 @keyframes ab-nasce{0%{transform:scale(0);opacity:0}40%{opacity:1}100%{transform:scale(1);opacity:1}}
-@keyframes ab-flutua{0%{transform:translateY(0) rotate(0) scale(1)}35%{transform:translateY(-16px) rotate(-5deg) scale(1.04)}70%{transform:translateY(-6px) rotate(4deg) scale(1.02)}100%{transform:translateY(-18px) rotate(6deg) scale(1.05)}}
-@keyframes ab-assenta{0%{transform:translateY(-18px) rotate(6deg) scale(1.05)}60%{transform:translateY(3px) rotate(-1deg) scale(.98)}100%{transform:translateY(0) rotate(0) scale(1)}}
+@keyframes ab-pula{0%{transform:translateY(0) scale(1,1)}10%{transform:translateY(0) scale(1.05,.95)}30%{transform:translateY(-30px) scale(.98,1.02)}48%{transform:translateY(0) scale(1.04,.96)}56%{transform:translateY(0) scale(1,1)}72%{transform:translateY(-14px) scale(.99,1.01)}88%{transform:translateY(0) scale(1.02,.98)}100%{transform:translateY(0) scale(1,1)}}
 @keyframes ab-sobe{to{opacity:1;transform:translateY(0)}}
 @keyframes ab-sai{to{opacity:0;transform:translateY(-6vh) scale(1.04)}}
 @media (prefers-reduced-motion:reduce){
@@ -53,10 +51,9 @@
 <div class="abertura" id="abertura" hidden aria-label="Abertura do sistema">
   <div class="ab-palco">
     <div class="ab-logo" id="abLogo"><span class="ab-gota"></span>
-      <span class="ab-pingo" style="--t:12px;--x:-95px;--y:-60px"></span><span class="ab-pingo" style="--t:9px;--x:-60px;--y:-105px"></span>
-      <span class="ab-pingo" style="--t:14px;--x:88px;--y:-70px"></span><span class="ab-pingo" style="--t:8px;--x:55px;--y:-110px"></span>
-      <span class="ab-pingo" style="--t:10px;--x:-120px;--y:10px"></span><span class="ab-pingo" style="--t:11px;--x:118px;--y:5px"></span>
-      <span class="ab-pingo" style="--t:7px;--x:-20px;--y:-125px"></span><span class="ab-pingo" style="--t:7px;--x:25px;--y:-122px"></span>
+      <span class="ab-pingo" style="--t:8px;--x:-55px;--y:-38px"></span><span class="ab-pingo" style="--t:6px;--x:-32px;--y:-62px"></span>
+      <span class="ab-pingo" style="--t:9px;--x:52px;--y:-42px"></span><span class="ab-pingo" style="--t:6px;--x:30px;--y:-66px"></span>
+      <span class="ab-pingo" style="--t:7px;--x:-70px;--y:4px"></span><span class="ab-pingo" style="--t:7px;--x:68px;--y:2px"></span>
       <img src="logo-simbolo.png" alt="GM Agronegócios"></div>
     <img class="ab-texto" id="abTexto" src="logo-texto.png" alt="">
     <div class="ab-boas" id="abBoas"><h1>Boas-vindas ao OrdenhaDigital</h1><p>Controle do rebanho leiteiro</p></div>
