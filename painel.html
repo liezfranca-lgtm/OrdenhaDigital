@@ -27,7 +27,7 @@ async function carregar() {
       carregarManejos(), carregarNutricao(),
     ]);
     const A = BASE.animais;
-    const botoes = `<a class="btn" href="producao.html">Lançar leite do tanque</a><button class="btn pri" onclick="formEvento()">Registrar evento</button>`;
+    const botoes = `<a class="btn" href="producao.html" data-ajuda="Abre a tela Produção de leite, onde se lança o total do tanque do dia e o controle leiteiro das vacas.">Lançar leite do tanque</a><button class="btn pri" onclick="formEvento()">Registrar evento</button>`;
     if (!A.length) {
       main.innerHTML = head('Painel do dia', 'Resumo da ordenha, do rebanho e do que precisa de atenção hoje.') +
         `<section class="card"><div class="empty-big"><b>Nenhum animal cadastrado ainda</b>Comece cadastrando o rebanho. Para vacas que já estão em lactação ou prenhes, informe a data do último parto e da última inseminação: o sistema calcula o resto.<br><button class="btn pri" onclick="formAnimal()">Cadastrar primeiro animal</button></div></section>`;

@@ -227,7 +227,8 @@ function mostrarSigla(el) {
   _tip.style.left = x + 'px'; _tip.style.top = y + 'px';
 }
 const esconderSigla = () => { if (_tip) _tip.hidden = true; };
-document.addEventListener('mouseover', e => { const a = e.target.closest && e.target.closest('abbr.sig'); if (a) mostrarSigla(a); });
+document.addEventListener('mouseover', e => { const a = e.target.closest && e.target.closest('abbr.sig'); if (a && !a.closest(_seletorBotaoSigla)) mostrarSigla(a); });
+const _seletorBotaoSigla = 'button, a.btn, .chip';
 document.addEventListener('mouseout', e => { if (e.target.closest && e.target.closest('abbr.sig')) esconderSigla(); });
 document.addEventListener('focusin', e => { if (e.target.matches && e.target.matches('abbr.sig')) mostrarSigla(e.target); });
 document.addEventListener('focusout', esconderSigla);
@@ -239,3 +240,89 @@ new MutationObserver(() => {
   if (_pendSigla) return; _pendSigla = true;
   requestAnimationFrame(() => { _pendSigla = false; marcarSiglas(document.getElementById('main')); marcarSiglas(document.getElementById('layer')); });
 }).observe(document.documentElement, { childList: true, subtree: true });
+
+// ---------- ajuda dos botões: parar o mouse sobre um botão mostra o que ele faz ----------
+// Um botão pode trazer data-ajuda="..." quando o mesmo texto faz coisas diferentes em telas diferentes.
+const AJUDA_BOTOES = {
+  'Lançar leite do tanque': 'Registra quantos litros foram para o tanque no dia (a coleta do laticínio) e quanto foi descartado.',
+  'Registrar evento': 'Registra inseminação, monta natural, transferência de embrião, diagnóstico de gestação, cio, parto, secagem ou aborto. O sistema recalcula sozinho o parto previsto, a secagem e o pré-parto.',
+  'Registrar evento reprodutivo': 'Registra inseminação, monta natural, transferência de embrião, diagnóstico de gestação, cio, parto, secagem ou aborto. O sistema recalcula sozinho o parto previsto, a secagem e o pré-parto.',
+  'Evento reprodutivo': 'Registra inseminação, monta natural, transferência de embrião, diagnóstico de gestação, cio, parto, secagem ou aborto. O sistema recalcula sozinho o parto previsto, a secagem e o pré-parto.',
+  'Evento': 'Registra inseminação, monta natural, transferência de embrião, diagnóstico de gestação, cio, parto, secagem ou aborto. O sistema recalcula sozinho o parto previsto, a secagem e o pré-parto.',
+  'Cadastrar animal': 'Abre o cadastro de um animal novo: identificação, genealogia e situação atual (para vaca que já está em lactação ou prenhe, informe o último parto e a última cobrição).',
+  'Cadastrar primeiro animal': 'Abre o cadastro de um animal novo: identificação, genealogia e situação atual (para vaca que já está em lactação ou prenhe, informe o último parto e a última cobrição).',
+  'Cadastrar cria': 'Cadastra uma bezerra ou bezerro. Crias de parto registrado em Reprodução já entram sozinhas.',
+  'Exportar relação (planilha)': 'Baixa a relação dos animais desta tela (com os filtros aplicados) num arquivo que abre no Excel.',
+  'Pesagem em grupo': 'Abre uma lista para digitar o peso de vários animais de uma vez (um lote ou uma categoria), mostrando o ganho por dia de cada um.',
+  'Pesar': 'Registra o peso deste animal no histórico e mostra quanto ele ganhou por dia desde a última pesagem.',
+  'Pesagem de leite': 'Lança a produção desta vaca no dia (manhã e tarde) e, se tiver, a CCS do laboratório.',
+  'Controle leiteiro do rebanho': 'Abre uma grade com todas as vacas em lactação para digitar manhã, tarde e CCS de cada uma no dia do controle.',
+  'Mover para o lote sugerido': 'Muda de lote as vacas cuja produção saiu da faixa: Lote 1 com 24 L ou mais, Lote 2 de 15 a 24 L, Lote 3 abaixo de 15 L.',
+  'Tratamento': 'Registra doença, medicamento e carência. Enquanto durar a carência, o leite da vaca aparece como descarte na ordenha.',
+  'Registrar tratamento': 'Registra doença, medicamento e carência. Enquanto durar a carência, o leite da vaca aparece como descarte na ordenha.',
+  'Prêmio': 'Registra um prêmio deste animal em exposição ou torneio leiteiro.',
+  'Editar': 'Abre os dados para corrigir ou completar.',
+  'Excluir': 'Apaga este registro. O sistema pede confirmação antes.',
+  'Saída do rebanho': 'Tira o animal das listas (venda, descarte, morte ou doação). O histórico fica guardado e, se informar valor, a venda entra no Financeiro.',
+  'Desmamar': 'Encerra o aleitamento. Registra o peso com que a cria foi entregue e, se quiser, o peso da mãe na desmama.',
+  'B19': 'Registra a vacina contra brucelose (B19), obrigatória para bezerras de 3 a 8 meses e aplicada por veterinário cadastrado.',
+  'Passar p/ novilha': 'Muda a bezerra desmamada para novilha (recria). Ela vai para o lote de novilhas.',
+  'Passar p/ novilho': 'Muda o bezerro desmamado para novilho (recria).',
+  'Registrar aplicação': 'Marca que esta vacina ou manejo foi feito. A próxima data é recalculada e, se informar o custo, ele vai para o Financeiro.',
+  'Novo manejo no calendário': 'Inclui uma vacina, exame ou manejo novo no calendário, com a frequência em dias.',
+  'Abrir': 'Abre a tela relacionada a este item.',
+  'Cadastrar touro': 'Cadastra um touro no botijão de sêmen: raça, central, preço e quantidade de doses.',
+  'Saída': 'Desconta do estoque uma quantidade que saiu fora da dieta (perda, uso avulso).',
+  'Cadastrar insumo': 'Cadastra um alimento ou produto do estoque (silagem, concentrado, núcleo mineral...) com preço e estoque inicial.',
+  'Baixar consumo das dietas': 'Desconta do estoque o que o rebanho comeu no dia (ou em vários dias), pela dieta de cada lote.',
+  'Editar dieta': 'Define quantos kg de cada insumo cada animal do lote come por dia. Isso calcula o custo e quanto o estoque ainda dura.',
+  'Novo lote': 'Cria um lote novo (lactação, pré-parto, secas, novilhas ou bezerras).',
+  'Renomear': 'Muda o nome, o tipo ou a ordem do lote.',
+  'Desfazer': 'Desfaz esta movimentação e volta o estoque ao que era antes.',
+  'Lançar mês do laticínio': 'Registra o resultado mensal do laticínio: volume, preço, bonificação, CCS, CBT, gordura e proteína. Pode lançar a receita do leite no Financeiro.',
+  'Lançar temperatura': 'Anota a temperatura do tanque de resfriamento. Avisa se passar de 4 °C.',
+  'Novo lançamento': 'Lança uma receita ou despesa no Financeiro.',
+  'Lançar nota fiscal': 'Lança uma despesa ou receita com o número da nota, o fornecedor ou cliente e o arquivo da nota (PDF ou foto).',
+  'Ver arquivo': 'Abre o PDF ou a foto da nota fiscal.',
+  'Com nota fiscal': 'Mostra só os lançamentos que têm nota fiscal.',
+  'Cadastrar fazenda': 'Cadastra uma propriedade: nome, município, áreas, inscrição estadual e CAR.',
+  'Ver só esta fazenda': 'Filtra todas as telas do rebanho para mostrar só os animais desta fazenda. Para voltar, escolha "Todas as fazendas" no filtro do topo.',
+  'Alternar tema': 'Troca entre o tema claro e o escuro.',
+  'Sair': 'Sai do sistema neste aparelho.',
+  'Todos': 'Mostra tudo, sem filtro.',
+  'Bezerra': 'Mostra só as bezerras.',
+  'Novilha': 'Mostra só as novilhas.',
+  'Lactação': 'Mostra só as vacas em lactação.',
+  'Seca': 'Mostra só as vacas secas.',
+  'Machos': 'Mostra só os machos (bezerros, novilhos e touros).',
+  'Produção atual': 'Ordena pela última pesagem de leite de cada vaca em lactação.',
+  'Média dos últimos 90 dias': 'Ordena pela média das pesagens dos últimos 90 dias. Tira o efeito de um dia bom ou ruim.',
+  'Total na lactação': 'Ordena pelos litros produzidos desde o parto, calculados pelo método do controle leiteiro oficial.',
+  'Projeção em 305 dias': 'Ordena por quanto a vaca deve produzir numa lactação padrão de 305 dias, pela curva dela.'
+};
+const _seletorBotao = 'button, a.btn, .chip';
+function ajudaDoBotao(el) {
+  if (el.dataset.ajuda) return el.dataset.ajuda;
+  const t = el.textContent.trim().replace(/\s+/g, ' ');
+  return AJUDA_BOTOES[t] || AJUDA_BOTOES[t.replace(/\s*\d+$/, '')] || null;
+}
+function mostrarDica(el, texto) {
+  if (!_tip) { _tip = document.createElement('div'); _tip.className = 'sig-tip'; _tip.setAttribute('role', 'tooltip'); document.body.appendChild(_tip); }
+  _tip.textContent = texto; _tip.hidden = false;
+  const r = el.getBoundingClientRect(), t = _tip.getBoundingClientRect();
+  let x = Math.min(Math.max(8, r.left + r.width / 2 - t.width / 2), innerWidth - t.width - 8), y = r.bottom + 8;
+  if (y + t.height > innerHeight - 8) y = r.top - t.height - 8;
+  _tip.style.left = x + 'px'; _tip.style.top = y + 'px';
+}
+let _tBotao = null;
+document.addEventListener('pointerover', e => {
+  if (e.pointerType !== 'mouse' || !e.target.closest) return;
+  const b = e.target.closest(_seletorBotao); if (!b || (e.relatedTarget && b.contains(e.relatedTarget))) return;
+  const txt = ajudaDoBotao(b); if (!txt) return;
+  clearTimeout(_tBotao); _tBotao = setTimeout(() => { if (b.isConnected && b.matches(':hover')) mostrarDica(b, txt); }, 500);
+});
+document.addEventListener('pointerout', e => {
+  const b = e.target.closest && e.target.closest(_seletorBotao);
+  if (b && !(e.relatedTarget && b.contains(e.relatedTarget))) { clearTimeout(_tBotao); esconderSigla(); }
+});
+document.addEventListener('pointerdown', () => { clearTimeout(_tBotao); esconderSigla(); }, true);
