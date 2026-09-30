@@ -255,7 +255,7 @@ const AJUDA_BOTOES = {
   'Exportar relação (planilha)': 'Baixa a relação dos animais desta tela (com os filtros aplicados) num arquivo que abre no Excel.',
   'Pesagem em grupo': 'Abre uma lista para digitar o peso de vários animais de uma vez (um lote ou uma categoria), mostrando o ganho por dia de cada um.',
   'Pesar': 'Registra o peso deste animal no histórico e mostra quanto ele ganhou por dia desde a última pesagem.',
-  'Pesagem de leite': 'Lança a produção desta vaca no dia (manhã e tarde) e, se tiver, a CCS do laboratório.',
+  'Medir leite': 'Lança quantos litros esta vaca deu no dia (manhã e tarde) e, se tiver, a CCS do laboratório.',
   'Controle leiteiro do rebanho': 'Abre uma grade com todas as vacas em lactação para digitar manhã, tarde e CCS de cada uma no dia do controle.',
   'Mover para o lote sugerido': 'Muda de lote as vacas cuja produção saiu da faixa: Lote 1 com 24 L ou mais, Lote 2 de 15 a 24 L, Lote 3 abaixo de 15 L.',
   'Tratamento': 'Registra doença, medicamento e carência. Enquanto durar a carência, o leite da vaca aparece como descarte na ordenha.',

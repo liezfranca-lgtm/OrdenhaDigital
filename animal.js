@@ -185,7 +185,7 @@ async function ficha(id) {
   <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${situacao(a)}${emCarencia(a) ? pill('leite em carência', 'bad') : ''}${a.registro ? pill('Registrado', 'ok') : ''}${premios.length ? pill(premios.length + ' prêmio' + (premios.length > 1 ? 's' : ''), 'warn') : ''}</div>
   <dl class="dl">${dl.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
   ${a.observacao ? `<p class="muted" style="margin-top:-6px">${esc(a.observacao)}</p>` : ''}
-  <div class="actions">${ehFemeaAdulta(a) ? `<button class="btn sm" onclick="formEvento(${id})">Evento reprodutivo</button>` : ''}${a.categoria === 'Lactação' ? `<button class="btn sm" onclick="formPesagem(${id})">Pesagem de leite</button>` : ''}<button class="btn sm" onclick="formPeso(${id})">Pesar</button><button class="btn sm" onclick="formTratamento(${id})">Tratamento</button><button class="btn sm" onclick="formPremio(${id})">Prêmio</button><button class="btn sm" onclick="formAnimal(${id})">Editar</button><button class="btn sm danger" onclick="formSaida(${id})">Saída do rebanho</button></div>
+  <div class="actions">${ehFemeaAdulta(a) ? `<button class="btn sm" onclick="formEvento(${id})">Evento reprodutivo</button>` : ''}${a.categoria === 'Lactação' ? `<button class="btn sm" onclick="formPesagem(${id})">Medir leite</button>` : ''}<button class="btn sm" onclick="formPeso(${id})">Pesar</button><button class="btn sm" onclick="formTratamento(${id})">Tratamento</button><button class="btn sm" onclick="formPremio(${id})">Prêmio</button><button class="btn sm" onclick="formAnimal(${id})">Editar</button><button class="btn sm danger" onclick="formSaida(${id})">Saída do rebanho</button></div>
   ${a.categoria === 'Lactação' || pontos.length ? `<div class="sec-t">Curva de lactação atual</div><div class="legend" style="margin-bottom:4px"><span><i style="background:var(--accent)"></i>pesagens (L/dia)</span><span><i style="background:var(--muted)"></i>curva esperada</span><span>eixo: dias em lactação</span></div>${curvaChart(pontos, del)}` : ''}
   <div class="sec-t">Peso</div>${pesoHtml(a, hp)}
   <div class="sec-t">Genealogia</div>${genealogiaHtml(a, mae)}
@@ -379,7 +379,7 @@ function camposEvento() {
 // ---------- pesagem individual ----------
 function formPesagem(id) {
   abrirModal({
-    titulo: 'Lançar pesagem de leite',
+    titulo: 'Medir leite',
     corpo: `<label class="full">Vaca<select name="animal" id="fp-animal" required><option value="">Escolha…</option>${optAnimais(a => a.categoria === 'Lactação', id)}</select></label>
     <label>Ordenha da manhã (L)<input name="manha" id="fp-manha" type="number" step="0.1" min="0" required></label><label>Ordenha da tarde (L)<input name="tarde" id="fp-tarde" type="number" step="0.1" min="0" value="0"></label>
     <label>Data<input name="data" id="fp-data" type="date" value="${iso(HOJE)}" required></label><label>CCS (mil cél/mL)<input name="ccs" id="fp-ccs" type="number" min="0" placeholder="opcional"></label>
@@ -387,7 +387,7 @@ function formPesagem(id) {
     salvar: async f => {
       await q(sb.from('pesagens_leite').upsert({ animal_id: +f.animal, data: f.data, manha: +f.manha, tarde: +f.tarde || 0, ccs: f.ccs ? +f.ccs : null }, { onConflict: 'animal_id,data' }));
       const a = BASE.porId.get(+f.animal);
-      await depoisDeSalvar(`Pesagem salva: ${a.nome || a.brinco} com ${nf(+f.manha + (+f.tarde || 0), 1)} L`);
+      await depoisDeSalvar(`Leite medido: ${a.nome || a.brinco} com ${nf(+f.manha + (+f.tarde || 0), 1)} L`);
     }
   });
 }
