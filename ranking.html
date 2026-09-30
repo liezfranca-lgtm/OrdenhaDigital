@@ -87,7 +87,7 @@ function desenhar() {
   <section class="card mb"><header><h2>${F.top === 'todas' ? 'Todas as vacas' : 'Top ' + F.top} · ${M.nome.toLowerCase()}</h2><span class="legend"><span><i style="background:var(--gold)"></i>1º</span><span><i style="background:var(--silver)"></i>2º</span><span><i style="background:var(--bronze)"></i>3º</span><span><i style="background:var(--warn)"></i>média do grupo</span></span></header>${barrasRanking(topN, media, M)}</section>
   <div class="grid g2e">
     <section class="card"><header><h2>Curvas de lactação das 5 melhores</h2><span>litros por dia × dias em lactação</span></header>${curvasTop(filtradas.slice(0, 5))}</section>
-    <section class="card"><header><h2>Distribuição do rebanho</h2><span>quantas vacas em cada faixa de ${M.un}</span></header>${histograma(vals, M)}</section>
+    <section class="card"><header><h2>Distribuição do rebanho</h2><span>quantas vacas em cada faixa de ${M.un}</span></header>${histograma(filtradas, M)}</section>
   </div>
   <div class="grid g2e">
     <section class="card"><header><h2>Média por raça</h2><span>${M.un}</span></header>${barrasGrupo(agrupar(filtradas, r => r.a.raca || 'Sem raça'), M)}</section>
@@ -138,19 +138,46 @@ function curvasTop(rows) {
   });
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Curvas de lactação">${g}</svg><div class="legend" style="margin-top:6px">${series.map((r, i) => `<span><i style="background:${CORES[i]}"></i>${esc(r.a.nome || r.a.brinco)}</span>`).join('')}</div>`;
 }
-function histograma(vals, M) {
-  const passo = M.un === 'L' ? niceStep(Math.max(...vals) / 8) : 5;
-  const faixas = {}; vals.forEach(v => { const k = Math.floor(v / passo) * passo; faixas[k] = (faixas[k] || 0) + 1; });
-  const ks = Object.keys(faixas).map(Number).sort((a, b) => a - b), ini = ks[0], fim = ks[ks.length - 1], cols = [];
-  for (let k = ini; k <= fim; k += passo) cols.push([k, faixas[k] || 0]);
+// Distribuição: cada barra é uma faixa de produção; clicar abre a lista das vacas daquela faixa
+let FAIXAS = {}, PASSO = 5;
+function histograma(rows, M) {
+  const vals = rows.map(r => r[F.metrica]);
+  PASSO = M.un === 'L' ? niceStep(Math.max(...vals) / 8) : 5;
+  FAIXAS = {}; rows.forEach(r => { const k = Math.floor(r[F.metrica] / PASSO) * PASSO; (FAIXAS[k] = FAIXAS[k] || []).push(r); });
+  const ks = Object.keys(FAIXAS).map(Number).sort((a, b) => a - b), ini = ks[0], fim = ks[ks.length - 1], cols = [];
+  for (let k = ini; k <= fim; k += PASSO) cols.push([k, (FAIXAS[k] || []).length]);
   const W = 520, H = 230, pl = 30, pb = 40, pt = 16, mx = Math.max(...cols.map(c => c[1])), bw = (W - pl - 10) / cols.length;
   const y = n => pt + (mx - n) * (H - pt - pb) / mx;
   let g = ''; for (let n = 0; n <= mx; n += Math.max(1, Math.ceil(mx / 4))) g += `<line class="ch-grid" x1="${pl}" x2="${W - 10}" y1="${y(n)}" y2="${y(n)}"/><text class="ch-tick" x="${pl - 6}" y="${y(n) + 4}" text-anchor="end">${n}</text>`;
   cols.forEach(([k, n], i) => {
-    const bx = pl + i * bw + 3;
-    g += `<rect x="${bx}" y="${y(n)}" width="${bw - 6}" height="${y(0) - y(n)}" rx="4" style="fill:var(--accent);opacity:${.35 + .65 * (i + 1) / cols.length}"/>${n ? `<text class="ch-val" x="${bx + (bw - 6) / 2}" y="${y(n) - 5}" text-anchor="middle">${n}</text>` : ''}<text class="ch-tick" x="${bx + (bw - 6) / 2}" y="${H - 22}" text-anchor="middle">${nf(k)}</text><text class="ch-tick" x="${bx + (bw - 6) / 2}" y="${H - 9}" text-anchor="middle">a ${nf(k + passo)}</text>`;
+    const bx = pl + i * bw + 3, cx = bx + (bw - 6) / 2;
+    g += `<g class="barra-clic" ${n ? `onclick="verFaixa(${k})" role="button" tabindex="0" onkeydown="if(event.key==='Enter')verFaixa(${k})" aria-label="Ver ${n > 1 ? 'as ' + n + ' vacas' : 'a 1 vaca'} de ${nf(k)} a ${nf(k + PASSO)}"` : ''}>
+      <rect x="${bx - 3}" y="${pt}" width="${bw}" height="${H - pt - pb + 2}" style="fill:transparent"/>
+      <rect class="barra" x="${bx}" y="${y(n)}" width="${bw - 6}" height="${y(0) - y(n)}" rx="4" style="fill:var(--accent);opacity:${.35 + .65 * (i + 1) / cols.length}"/>
+      ${n ? `<text class="ch-val" x="${cx}" y="${y(n) - 5}" text-anchor="middle">${n}</text>` : ''}<text class="ch-tick" x="${cx}" y="${H - 22}" text-anchor="middle">${nf(k)}</text><text class="ch-tick" x="${cx}" y="${H - 9}" text-anchor="middle">a ${nf(k + PASSO)}</text></g>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Distribuição da produção">${g}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Distribuição da produção">${g}</svg><p class="muted" style="margin:6px 0 0;font-size:.8rem">Clique numa barra para ver quais vacas estão nela.</p>`;
+}
+function verFaixa(k) {
+  const M = METRICAS[F.metrica], lista = (FAIXAS[k] || []).slice().sort((a, b) => b[F.metrica] - a[F.metrica]);
+  const todas = Object.values(FAIXAS).flat(), media = todas.reduce((s, r) => s + r[F.metrica], 0) / todas.length;
+  const porDia = F.metrica === 'atual' || F.metrica === 'media90';
+  // leitura simples: produção baixa é normal perto de secar; é sinal de alerta em vaca recém-parida
+  const leitura = r => {
+    const del = delDe(r.a); if (!porDia || del == null) return '';
+    if (r[F.metrica] < media * .8 && del >= 250) return pill('perto de secar · normal', 'mute');
+    if (del < 30) return pill('recém-parida · ainda subindo', 'mute');   // a produção sobe até o pico, perto dos 50 dias
+    if (r[F.metrica] < media * .8 && del <= 120) return pill('pouco leite para quem pariu há pouco · atenção', 'bad');
+    if (r[F.metrica] >= media * 1.2) return pill('acima da média', 'ok');
+    return '';
+  };
+  document.getElementById('layer').innerHTML = `<div class="ovl" onmousedown="if(event.target===this)fechar()"><div class="modal wide" role="dialog" aria-label="Vacas da faixa">
+    <h2>${lista.length} vaca${lista.length > 1 ? 's' : ''} de ${nf(k)} a ${nf(k + PASSO)} ${M.un}</h2>
+    <p class="muted" style="margin:-8px 0 12px">${M.nome} · média do grupo: ${nf(media, M.dec)} ${M.un}. Clique numa vaca para abrir a ficha.</p>
+    <div class="scroll"><table class="tbl"><thead><tr><th>Vaca</th><th class="num">${M.un === 'L' ? 'Litros' : 'L/dia'}</th><th class="num">DEL</th><th class="num">Lact.</th><th>Lote</th><th>Situação</th><th></th></tr></thead><tbody>
+    ${lista.map(r => `<tr class="click" onclick="ficha(${r.a.id})"><td>${animLink(r.a)}${emCarencia(r.a) ? ' ' + pill('carência', 'bad') : ''}</td><td class="num mono"><b>${nf(r[F.metrica], M.dec)}</b></td><td class="num mono">${delDe(r.a) ?? '—'}</td><td class="num mono">${r.a.numero_lactacao || '—'}</td><td class="muted">${esc(loteNome(r.a).split(' · ')[0])}</td><td>${situacao(r.a)}</td><td>${leitura(r)}</td></tr>`).join('')}</tbody></table></div>
+    ${porDia ? `<div class="hint" style="margin-top:12px;font-size:.82rem;color:var(--muted);background:var(--sunk);border-radius:8px;padding:8px 10px">Toda vaca produz muito logo depois do parto e vai caindo até secar. Por isso olhe o <b>DEL</b> (dias desde o parto): DEL alto com pouco leite é normal; nas primeiras semanas depois do parto a produção ainda está subindo; entre 30 e 120 dias, pouco leite merece atenção (saúde, alimentação ou genética).</div>` : ''}
+    <div class="mfoot"><button type="button" class="btn" onclick="fechar()">Fechar</button></div></div></div>`;
 }
 function barrasGrupo(grupos, M) {
   if (!grupos.length) return '<div class="empty">Sem dados.</div>';

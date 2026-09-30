@@ -214,6 +214,9 @@ abbr.sig:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border
 .rk-pos.p1,.rk-pos.p2,.rk-pos.p3{background:var(--ms);color:var(--m)}
 .ch-lbl{fill:var(--ink);font:600 12px var(--f-body)}
 .ch-val{fill:var(--ink);font:700 12px var(--f-mono)}
+.barra-clic[role=button]{cursor:pointer}
+.barra-clic[role=button]:hover .barra,.barra-clic[role=button]:focus .barra{opacity:1!important;filter:brightness(1.15)}
+.barra-clic:focus{outline:none}
 .ch-media{stroke:var(--warn);stroke-width:1.5;stroke-dasharray:5 4}
 select.search{width:auto}
 @media (max-width:700px){.podio{grid-template-columns:1fr}.podio .p1{order:-1}.gen{grid-template-columns:1fr 1fr}.gen-col:first-child{grid-column:1/-1}}
