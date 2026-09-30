@@ -14,7 +14,7 @@ function alternarExplicacoes() {
 (function aplicarTemaSalvo() {
   let t = null;
   try { t = localStorage.getItem('ordenha-tema'); } catch (e) {}
-  if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  if (!t) t = 'dark';   // tema escuro é o padrão; o botão Alternar tema troca e guarda a escolha
   document.documentElement.setAttribute('data-theme', t);
 })();
 
