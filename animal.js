@@ -171,7 +171,7 @@ async function ficha(id) {
   const dl = [['Sexo', ehMacho(a) ? 'Macho' : 'Fêmea'], ['Raça', a.raca || '—'], ['Categoria', a.categoria], ['Registro', a.registro || 'sem registro'], ['Fazenda', fazendaNome(a) || '—'], ['Procedência', a.procedencia || '—'], ['Lote', loteNome(a)], ['Nascimento', fdy(a.data_nascimento)], ['Idade', idadeTxt(a.data_nascimento)]];
   if (!ehMacho(a) && !ehCria(a)) dl.push(['Lactações', a.numero_lactacao || '—']);
   if (a.categoria === 'Lactação' || a.categoria === 'Seca') dl.push(['Último parto', fdy(a.data_ultimo_parto)], ['DEL', del ?? '—'], ['Produção', prod != null ? nf(prod, 1) + ' L/dia' : a.categoria === 'Seca' ? 'seca' : 'sem pesagem']);
-  if (a.data_ultima_ia) dl.push(['Última cobrição', fdy(a.data_ultima_ia)], ['Touro', a.touro_ultima_ia || '—'], ['Cobrições no ciclo', a.ias_no_ciclo]);
+  if (a.data_ultima_ia) dl.push(['Última cobrição', fdy(a.data_ultima_ia)], ['Touro', a.touro_ultima_ia || '—'], ['Coberturas desde o parto', a.ias_no_ciclo]);
   if (p) dl.push(['Parto previsto', fdy(p)], ['Secar até', fdy(addD(p, -DIAS_SECAGEM))], ['Pré-parto', fdy(addD(p, -DIAS_PRE_PARTO))]);
   if (a.peso) dl.push(['Peso atual', nf(a.peso) + ' kg']);
   if (a.peso_nascimento) dl.push(['Peso ao nascer', nf(a.peso_nascimento) + ' kg']);
@@ -233,6 +233,7 @@ function formAnimal(id, catPadrao) {
     <label data-cat="Lactação Seca Novilha">Situação reprodutiva<select name="situacao_reprodutiva" id="fa-sit">${['Em recria', 'Apta p/ IA', 'Pós-parto', 'Vazia', 'Inseminada', 'Prenhe'].map(s => `<option value="${s}" ${a && a.situacao_reprodutiva === s ? 'selected' : ''}>${s === 'Inseminada' ? 'Coberta / inseminada' : s}</option>`).join('')}</select></label>
     <label data-cat="Lactação Seca Novilha">Data da última cobrição<input name="data_ultima_ia" id="fa-ia" type="date" value="${v('data_ultima_ia')}"></label>
     <label data-cat="Lactação Seca Novilha">Touro da última cobrição<input name="touro_ultima_ia" id="fa-touro" list="dl-touros" value="${v('touro_ultima_ia')}"></label>
+    <label data-cat="Lactação Seca Novilha">Coberturas desde o parto<input name="ias_no_ciclo" id="fa-ias" type="number" min="0" value="${v('ias_no_ciclo')}" placeholder="quantas vezes foi coberta"></label>
     <label data-cat="Seca">Data da secagem<input name="data_secagem" id="fa-sec" type="date" value="${v('data_secagem')}"></label>
     <div class="hint" data-cat="Lactação Seca Novilha">Para quem está entrando no sistema agora: informe a situação de hoje. Com a data da cobrição de uma vaca prenhe, o sistema calcula parto, secagem e pré-parto sozinho.</div>`,
     salvar: async f => {
@@ -250,7 +251,8 @@ function formAnimal(id, catPadrao) {
       else {
         reg.situacao_reprodutiva = f.situacao_reprodutiva; reg.data_ultima_ia = f.data_ultima_ia || null; reg.touro_ultima_ia = t(f.touro_ultima_ia);
         if (['Inseminada', 'Prenhe'].includes(reg.situacao_reprodutiva) && !reg.data_ultima_ia) throw new Error('informe a data da última cobrição para vaca coberta ou prenhe.');
-        if (reg.data_ultima_ia && (!a || a.ias_no_ciclo === 0)) reg.ias_no_ciclo = 1;
+        // número de coberturas desde o parto: o informado, ou 1 se há data de cobrição e nada foi informado
+        reg.ias_no_ciclo = f.ias_no_ciclo !== '' && f.ias_no_ciclo != null ? +f.ias_no_ciclo : (reg.data_ultima_ia ? Math.max(1, a ? a.ias_no_ciclo : 0) : 0);
       }
       reg.data_secagem = f.categoria === 'Seca' ? (f.data_secagem || null) : null;
       if (f.categoria === 'Lactação' && !reg.data_ultimo_parto) throw new Error('informe a data do último parto da vaca em lactação.');

@@ -180,6 +180,9 @@ table.tbl{width:100%;border-collapse:collapse;font-size:.86rem}
 .sel-faz{font-weight:600;cursor:pointer;max-width:100%}
 .sel-faz.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
 abbr.sig{text-decoration:underline dotted;text-decoration-color:var(--muted);text-underline-offset:3px;cursor:help}
+.termo{cursor:help}
+.kpi .lbl.termo,.tbl th.termo,.dl dt.termo,span.termo,.sec-t.termo,.card>header h2.termo,.gen-box small.termo{text-decoration:underline dotted;text-decoration-color:var(--muted);text-underline-offset:3px}
+.sem-explicacao abbr.sig,.sem-explicacao .termo{text-decoration:none;cursor:inherit}
 abbr.sig:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:2px}
 .sig-tip{position:fixed;z-index:90;max-width:280px;background:var(--ink);color:var(--bg);font-size:.8rem;line-height:1.4;padding:8px 11px;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);pointer-events:none;text-transform:none;letter-spacing:0;font-weight:400}
 .sig-tip b{font-weight:700;margin-right:4px}

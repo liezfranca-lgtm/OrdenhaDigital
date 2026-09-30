@@ -2,6 +2,15 @@
 // OrdenhaDigital — layout, utilidades e gráficos compartilhados
 // ============================================================
 
+// Explicações (siglas, termos e botões): ligadas por padrão; desligar quando a equipe já souber operar
+const explicacoesLigadas = () => { try { return localStorage.getItem('ordenha-explicacoes') !== 'off'; } catch (e) { return true; } };
+if (!explicacoesLigadas()) document.documentElement.classList.add('sem-explicacao');
+function alternarExplicacoes() {
+  const ligar = !explicacoesLigadas();
+  try { localStorage.setItem('ordenha-explicacoes', ligar ? 'on' : 'off'); } catch (e) {}
+  location.reload();
+}
+
 (function aplicarTemaSalvo() {
   let t = null;
   try { t = localStorage.getItem('ordenha-tema'); } catch (e) {}
@@ -31,7 +40,8 @@ async function iniciarPagina(pagina) {
         <div class="brand"><img src="logo-gm.png" alt="GM Agronegócios"><div><b>OrdenhaDigital</b><small>Controle do rebanho leiteiro</small></div></div>
         <nav class="nav">${MENU.map(([p, t]) => `<a href="${p}.html" class="${p === pagina ? 'on' : ''}">${t}</a>`).join('')}</nav>
         <div class="foot"><span id="userEmail"></span>
-          <div class="row"><button class="ghost" type="button" onclick="alternarTema()">Alternar tema</button><button class="ghost" type="button" onclick="logout()">Sair</button></div></div>
+          <div class="row"><button class="ghost" type="button" onclick="alternarTema()">Alternar tema</button><button class="ghost" type="button" onclick="logout()">Sair</button></div>
+          <button class="ghost" type="button" onclick="alternarExplicacoes()" data-ajuda="Liga ou desliga as explicações que aparecem ao passar o mouse sobre siglas, termos e botões. Desligue quando a equipe já souber operar.">Explicações: ${explicacoesLigadas() ? 'ligadas' : 'desligadas'}</button></div>
       </aside>
       <main id="main"><div class="loading">Carregando…</div></main>
     </div><div id="layer"></div>`);
@@ -196,7 +206,7 @@ const SIGLAS = {
 const _reSigla = new RegExp('(?<![\\wÀ-ÿ])(' + Object.keys(SIGLAS).sort((a, b) => b.length - a.length).map(k => k.replace(' ', '\\s')).join('|') + ')(?![\\wÀ-ÿ])', 'g');
 const _pulaSigla = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'ABBR', 'svg', 'SVG', 'text', 'title']);
 function marcarSiglas(raiz) {
-  if (!raiz || raiz.nodeType !== 1) return;
+  if (!raiz || raiz.nodeType !== 1 || !explicacoesLigadas()) return;
   const w = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT, {
     acceptNode(n) {
       for (let p = n.parentNode; p && p !== raiz.parentNode; p = p.parentNode) if (_pulaSigla.has(p.nodeName) || (p.classList && p.classList.contains('sem-sigla'))) return NodeFilter.FILTER_REJECT;
@@ -219,6 +229,7 @@ function marcarSiglas(raiz) {
 }
 let _tip;
 function mostrarSigla(el) {
+  if (!explicacoesLigadas()) return;
   if (!_tip) { _tip = document.createElement('div'); _tip.className = 'sig-tip'; _tip.setAttribute('role', 'tooltip'); document.body.appendChild(_tip); }
   _tip.innerHTML = `<b>${esc(el.textContent)}</b> ${esc(el.dataset.tip)}`; _tip.hidden = false;
   const r = el.getBoundingClientRect(), t = _tip.getBoundingClientRect();
@@ -238,7 +249,7 @@ addEventListener('scroll', esconderSigla, true);
 let _pendSigla = false;
 new MutationObserver(() => {
   if (_pendSigla) return; _pendSigla = true;
-  requestAnimationFrame(() => { _pendSigla = false; marcarSiglas(document.getElementById('main')); marcarSiglas(document.getElementById('layer')); });
+  setTimeout(() => { _pendSigla = false; marcarSiglas(document.getElementById('main')); marcarSiglas(document.getElementById('layer')); }, 20);
 }).observe(document.documentElement, { childList: true, subtree: true });
 
 // ---------- ajuda dos botões: parar o mouse sobre um botão mostra o que ele faz ----------
@@ -306,9 +317,10 @@ function ajudaDoBotao(el) {
   const t = el.textContent.trim().replace(/\s+/g, ' ');
   return AJUDA_BOTOES[t] || AJUDA_BOTOES[t.replace(/\s*\d+$/, '')] || null;
 }
-function mostrarDica(el, texto) {
+function mostrarDica(el, texto, titulo) {
+  if (!explicacoesLigadas()) return;
   if (!_tip) { _tip = document.createElement('div'); _tip.className = 'sig-tip'; _tip.setAttribute('role', 'tooltip'); document.body.appendChild(_tip); }
-  _tip.textContent = texto; _tip.hidden = false;
+  _tip.innerHTML = (titulo ? `<b>${esc(titulo)}</b> ` : '') + esc(texto); _tip.hidden = false;
   const r = el.getBoundingClientRect(), t = _tip.getBoundingClientRect();
   let x = Math.min(Math.max(8, r.left + r.width / 2 - t.width / 2), innerWidth - t.width - 8), y = r.bottom + 8;
   if (y + t.height > innerHeight - 8) y = r.top - t.height - 8;
