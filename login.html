@@ -86,7 +86,7 @@ document.getElementById('flogin').addEventListener('submit', async e => {
   location.href = 'painel.html';
 });
 
-// ---------- abertura (uma vez por visita; atualizar a página não repete) ----------
+// ---------- abertura ----------
 const sessaoPromessa = supabaseClient.auth.getSession().then(r => r.data.session).catch(() => null);
 let jaViu = false; try { jaViu = sessionStorage.getItem('ordenha-abertura') === '1'; } catch (e) {}
 const semMovimento = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -101,9 +101,14 @@ async function depoisDaAbertura() {
   ab.classList.add('sai'); wrap.classList.remove('escondido');
   setTimeout(() => { ab.hidden = true; document.getElementById('email').focus(); }, semMovimento ? 0 : 800);
 }
-if (jaViu) {
-  sessaoPromessa.then(s => { if (s) location.href = 'painel.html'; });
-} else {
+// Sem login: a abertura roda toda vez que a página carrega (inclusive ao atualizar).
+// Já logado: roda uma vez por visita e segue para o painel.
+if (!jaViu) iniciarAbertura();
+else {
+  wrap.classList.add('escondido');
+  sessaoPromessa.then(s => { if (s) location.href = 'painel.html'; else iniciarAbertura(); });
+}
+function iniciarAbertura() {
   ab.hidden = false; wrap.classList.add('escondido');
   const T = semMovimento ? { para: 200, boas: 400, fim: 1800 } : { para: 5000, boas: 5300, fim: 7300 };
   timers.push(setTimeout(() => document.getElementById('abLogo').classList.add('parou'), T.para));          // logo para de se mexer aos 5 s
