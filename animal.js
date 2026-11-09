@@ -20,7 +20,7 @@ let BASE = null;
 // { todas: true } ignora esse filtro (usado na tela de Fazendas, que compara todas).
 async function carregarBase(opts = {}) {
   const desde = iso(addD(HOJE, -420));
-  const [todosAnimais, lotes, touros, tratamentos, pesagens, fazendas, pesosCorp] = await Promise.all([
+  const [todosAnimais, lotes, touros, tratamentos, pesagens, fazendas, pesosCorp, inseminadores] = await Promise.all([
     buscarPaginado(() => sb.from('animais').select('*').eq('ativo', true).order('brinco')),
     q(sb.from('lotes').select('*').order('ordem')),
     q(sb.from('touros').select('*').order('codigo')),
@@ -28,18 +28,29 @@ async function carregarBase(opts = {}) {
     buscarPaginado(() => sb.from('pesagens_leite').select('animal_id,data,manha,tarde,total,ccs').gte('data', desde).order('data')),
     q(sb.from('fazendas').select('*').order('nome')),
     buscarPaginado(() => sb.from('pesagens_corporais').select('animal_id,data,peso').order('data')),
+    q(sb.from('inseminadores').select('*').order('nome')),
   ]);
   const fz = fazendaSelecionada(fazendas);
   const animais = fz && !opts.todas ? todosAnimais.filter(a => a.fazenda_id === fz.id) : todosAnimais;
   const ultPes = new Map(), ultCcs = new Map();
   pesagens.forEach(p => { ultPes.set(p.animal_id, p); if (p.ccs != null) ultCcs.set(p.animal_id, p); });
   const pesos = new Map(); pesosCorp.forEach(p => { if (!pesos.has(p.animal_id)) pesos.set(p.animal_id, []); pesos.get(p.animal_id).push({ data: p.data, peso: Number(p.peso) }); });
-  BASE = { animais, todosAnimais, pesos, lotes, touros, tratamentos, pesagens, ultPes, ultCcs, fazendas, fazenda: opts.todas ? null : fz, semFiltro: !!opts.todas,
+  BASE = { animais, todosAnimais, pesos, inseminadores, lotes, touros, tratamentos, pesagens, ultPes, ultCcs, fazendas, fazenda: opts.todas ? null : fz, semFiltro: !!opts.todas,
     porId: new Map(animais.map(a => [a.id, a])), lotePorId: new Map(lotes.map(l => [l.id, l])), fazPorId: new Map(fazendas.map(f => [f.id, f])) };
   return BASE;
 }
 // Texto para o subtítulo das telas quando uma fazenda está escolhida
-const notaFazenda = (comTanque = false) => BASE.fazenda ? ` <b>Mostrando só ${esc(BASE.fazenda.nome)}.</b>${comTanque ? ' O leite do tanque é de todas as fazendas.' : ''}` : '';
+const notaFazenda = (tanqueGeral = false) => BASE.fazenda ? ` <b>Mostrando só ${esc(BASE.fazenda.nome)}.</b>${tanqueGeral ? ' Esta fazenda não tem tanque próprio lançado: o leite do tanque mostrado é o geral.' : ''}` : '';
+// Tanque: com fazenda escolhida usa os lançamentos dela (ou o tanque geral, se ela não tiver tanque próprio);
+// sem fazenda escolhida soma tudo por dia. Devolve { serie: [{data, litros, descartado}], geral }.
+function serieTanque(regs) {
+  const fz = BASE.fazenda; let usados = regs, geral = false;
+  if (fz) { const proprios = regs.filter(t => t.fazenda_id === fz.id); if (proprios.length) usados = proprios; else { usados = regs.filter(t => !t.fazenda_id); geral = true; } }
+  const porDia = new Map();
+  usados.forEach(t => { const x = porDia.get(t.data) || { data: t.data, litros: 0, descartado: 0 }; x.litros += Number(t.litros); x.descartado += Number(t.descartado || 0); porDia.set(t.data, x); });
+  return { serie: [...porDia.values()].sort((a, b) => a.data.localeCompare(b.data)), geral };
+}
+const optFazendasGeral = sel => `<option value="">Geral (tanque único / todas)</option>` + BASE.fazendas.filter(f => f.ativo || f.id == sel).map(f => `<option value="${f.id}" ${f.id == sel ? 'selected' : ''}>${esc(f.nome)}</option>`).join('');
 function fazendaSelecionada(fazendas) {
   let id = null; try { id = +localStorage.getItem('ordenha-fazenda') || null; } catch (e) {}
   return id ? fazendas.find(f => f.id === id && f.ativo) || null : null;
@@ -185,7 +196,7 @@ async function ficha(id) {
   <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${situacao(a)}${emCarencia(a) ? pill('leite em carência', 'bad') : ''}${a.registro ? pill('Registrado', 'ok') : ''}${premios.length ? pill(premios.length + ' prêmio' + (premios.length > 1 ? 's' : ''), 'warn') : ''}</div>
   <dl class="dl">${dl.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
   ${a.observacao ? `<p class="muted" style="margin-top:-6px">${esc(a.observacao)}</p>` : ''}
-  <div class="actions">${ehFemeaAdulta(a) ? `<button class="btn sm" onclick="formEvento(${id})">Evento reprodutivo</button>` : ''}${a.categoria === 'Lactação' ? `<button class="btn sm" onclick="formPesagem(${id})">Medir leite</button>` : ''}<button class="btn sm" onclick="formPeso(${id})">Pesar</button><button class="btn sm" onclick="formTratamento(${id})">Tratamento</button><button class="btn sm" onclick="formPremio(${id})">Prêmio</button><button class="btn sm" onclick="formAnimal(${id})">Editar</button><button class="btn sm danger" onclick="formSaida(${id})">Saída do rebanho</button></div>
+  <div class="actions">${ehFemeaAdulta(a) ? `<button class="btn sm" onclick="formEvento(${id})">Evento reprodutivo</button>` : ''}${a.categoria === 'Lactação' ? `<button class="btn sm" onclick="formPesagem(${id})">Medir leite</button>` : ''}<button class="btn sm" onclick="formPeso(${id})">Pesar</button><button class="btn sm" onclick="formTratamento(${id})">Tratamento</button><button class="btn sm" onclick="formPremio(${id})">Prêmio</button><button class="btn sm" onclick="formAnimal(${id})">Editar</button>${BASE.fazendas.filter(f => f.ativo).length > 1 ? `<button class="btn sm" onclick="formTransferir(${id})">Vender p/ outra fazenda</button>` : ''}<button class="btn sm danger" onclick="formSaida(${id})">Saída do rebanho</button></div>
   ${a.categoria === 'Lactação' || pontos.length ? `<div class="sec-t">Curva de lactação atual</div><div class="legend" style="margin-bottom:4px"><span><i style="background:var(--accent)"></i>pesagens (L/dia)</span><span><i style="background:var(--muted)"></i>curva esperada</span><span>eixo: dias em lactação</span></div>${curvaChart(pontos, del)}` : ''}
   <div class="sec-t">Peso</div>${pesoHtml(a, hp)}
   <div class="sec-t">Genealogia</div>${genealogiaHtml(a, mae)}
@@ -288,17 +299,20 @@ function mostrarCamposCategoria(novo) {
 }
 
 // ---------- evento reprodutivo ----------
-const TIPOS_EVENTO = ['Inseminação', 'Monta natural', 'Transferência de embrião', 'Diagnóstico positivo', 'Diagnóstico negativo', 'Cio observado', 'Parto', 'Secagem', 'Aborto'];
+const TIPOS_EVENTO = ['Inseminação', 'Monta natural', 'Transferência de embrião', 'Diagnóstico positivo', 'Diagnóstico negativo', 'Parto', 'Secagem', 'Aborto'];
 function formEvento(id) {
-  const reprodutores = BASE.animais.filter(x => x.categoria === 'Touro');
+  const reprodutores = BASE.todosAnimais.filter(x => x.categoria === 'Touro');
+  const insAtivos = BASE.inseminadores.filter(i => i.ativo);
   abrirModal({
     titulo: 'Registrar evento reprodutivo',
     corpo: `<label class="full">Animal<select name="animal" id="fe-animal" required><option value="">Escolha…</option>${optAnimais(ehFemeaAdulta, id)}</select></label>
     <label>Evento<select name="tipo" id="fe-tipo" onchange="camposEvento()">${TIPOS_EVENTO.map(t => `<option>${t}</option>`).join('')}</select></label>
     <label><span id="fe-data-rot">Data</span><input name="data" id="fe-data" type="date" value="${iso(HOJE)}" required></label>
+    <label data-ev="Inseminação">Tipo de inseminação<select name="tipo_cio" id="fe-tipo-cio"><option>Cio natural</option><option>IATF</option></select></label>
+    <label data-ev="Inseminação|Transferência de embrião">Inseminador<select name="inseminador" id="fe-inseminador"><option value="">— não informado —</option>${insAtivos.map(i => `<option value="${i.id}">${esc(i.nome)}</option>`).join('')}</select></label>
     <label class="full" data-ev="Inseminação">Sêmen do botijão<select name="touro" id="fe-touro"><option value="">— informar sem baixa no botijão —</option>${BASE.touros.filter(t => t.ativo).map(t => `<option value="${t.id}" ${t.doses > 0 ? '' : 'disabled'}>${esc(t.codigo)} · ${t.doses} doses</option>`).join('')}</select></label>
     <label class="full" data-ev="Inseminação">Ou outro sêmen<input name="touro_txt" id="fe-touro-txt" placeholder="opcional"></label>
-    <label data-ev="Monta natural">Touro da monta<input name="touro_monta" id="fe-touro-monta" list="dl-reprod" placeholder="brinco ou nome"><datalist id="dl-reprod">${reprodutores.map(t => `<option>${esc(nomeCurto(t))}</option>`).join('')}</datalist></label>
+    <label data-ev="Monta natural">Touro da monta<select name="touro_monta" id="fe-touro-monta">${reprodutores.length ? '<option value="">Escolha o touro…</option>' + reprodutores.map(t => `<option value="${t.id}">${esc(nomeCurto(t))}${t.raca ? ' · ' + esc(t.raca) : ''}</option>`).join('') : '<option value="">Nenhum touro cadastrado</option>'}</select></label>
     <label data-ev="Monta natural">Fim do período com o touro<input name="data_fim" id="fe-data-fim" type="date"></label>
     <label data-ev="Transferência de embrião">Touro (pai do embrião)<input name="touro_te" id="fe-touro-te" list="dl-touros-te"><datalist id="dl-touros-te">${BASE.touros.map(t => `<option>${esc(t.codigo)}</option>`).join('')}</datalist></label>
     <label data-ev="Transferência de embrião">Doadora (mãe do embrião)<input name="doadora" id="fe-doadora" placeholder="nome ou registro"></label>
@@ -313,24 +327,28 @@ function formEvento(id) {
     <div class="hint" id="fe-hint"></div>`,
     salvar: async f => {
       const a = BASE.porId.get(+f.animal); if (!a) throw new Error('escolha o animal.');
-      const d = f.data, up = {}; let det = f.obs.trim(), touroId = null, dataFim = null;
+      const d = f.data, up = {}; let det = f.obs.trim(), touroId = null, dataFim = null, tipoCio = null, inseminadorId = null, touroAnimalId = null;
       if (COBRICOES.includes(f.tipo)) {
         let nomeTouro = '';
         if (f.tipo === 'Inseminação') {
           const t = f.touro ? BASE.touros.find(x => x.id == f.touro) : null;
           nomeTouro = t ? t.codigo : f.touro_txt.trim();
+          tipoCio = f.tipo_cio || 'Cio natural'; inseminadorId = f.inseminador ? +f.inseminador : null;
           if (t) { touroId = t.id; await q(sb.from('touros').update({ doses: Math.max(0, t.doses - 1) }).eq('id', t.id)); }
         } else if (f.tipo === 'Monta natural') {
-          nomeTouro = f.touro_monta.trim();
+          const tm = f.touro_monta ? BASE.todosAnimais.find(x => x.id == f.touro_monta) : null;
+          if (!tm) throw new Error(reprodutores.length ? 'escolha o touro da monta.' : 'cadastre o touro no Rebanho (sexo Macho, categoria Touro) para poder escolher aqui.');
+          nomeTouro = nomeCurto(tm); touroAnimalId = tm.id; tipoCio = 'Cio natural';
           dataFim = f.data_fim || null;
           if (dataFim && dataFim < d) throw new Error('o fim do período não pode ser antes do início.');
         } else {
-          nomeTouro = f.touro_te.trim();
+          nomeTouro = f.touro_te.trim(); inseminadorId = f.inseminador ? +f.inseminador : null;
           if (f.doadora.trim()) det = ['Doadora ' + f.doadora.trim(), det].filter(Boolean).join(' · ');
         }
         if (!nomeTouro) throw new Error('informe o touro.');
         Object.assign(up, { data_ultima_ia: d, touro_ultima_ia: nomeTouro, situacao_reprodutiva: 'Inseminada', ias_no_ciclo: (['Vazia', 'Inseminada'].includes(a.situacao_reprodutiva) ? a.ias_no_ciclo : 0) + 1 });
-        det = [nomeTouro, det].filter(Boolean).join(' · ');
+        const nomeIns = inseminadorId ? (BASE.inseminadores.find(i => i.id === inseminadorId) || {}).nome : null;
+        det = [nomeTouro, tipoCio, nomeIns ? 'por ' + nomeIns : null, det].filter(Boolean).join(' · ');
       } else if (f.tipo === 'Diagnóstico positivo') {
         if (f.dias_gest) up.data_ultima_ia = iso(addD(pd(d), -(+f.dias_gest)));
         else if (!a.data_ultima_ia) throw new Error('registre a cobrição antes, ou informe a idade da gestação.');
@@ -357,22 +375,22 @@ function formEvento(id) {
         Object.assign(up, { categoria: 'Seca', data_secagem: d, lote_id: l ? l.id : a.lote_id });
       }
       if (Object.keys(up).length) await q(sb.from('animais').update(up).eq('id', a.id));
-      await registrarEvento(a.id, d, f.tipo, det, touroId, dataFim);
+      await q(sb.from('eventos').insert({ animal_id: a.id, data: d, tipo: f.tipo, detalhe: det, touro_id: touroId, data_fim: dataFim, tipo_cio: tipoCio, inseminador_id: inseminadorId, touro_animal_id: touroAnimalId }));
       await depoisDeSalvar(`${f.tipo} registrado para ${a.nome || a.brinco}`);
     }
   });
   camposEvento();
 }
 const DICAS_EVENTO = {
-  'Inseminação': 'Dá baixa no botijão e agenda o diagnóstico para 30 dias.',
-  'Monta natural': 'Informe o dia em que o touro entrou com a vaca. Se ficou um período junto, informe o fim. No diagnóstico, a idade da gestação acerta o parto previsto.',
+  'Inseminação': 'Cio natural: inseminou porque viu a vaca no cio. IATF: inseminação em tempo fixo, com protocolo de hormônio. Dá baixa no botijão e agenda o diagnóstico para 30 dias. Inseminadores são cadastrados em Reprodução.',
+  'Monta natural': 'Escolha o touro (cadastrado no Rebanho como macho, categoria Touro). Informe o dia em que ele entrou com a vaca e, se ficou um período junto, o fim. No diagnóstico, a idade da gestação acerta o parto previsto.',
   'Transferência de embrião': 'A vaca que recebeu o embrião é a receptora. O pai e a doadora ficam registrados como genealogia da cria.',
   'Diagnóstico positivo': 'Calcula parto (+283 dias da cobrição), secagem (−60) e pré-parto (−21). Com a idade da gestação pelo ultrassom, a conta usa ela.',
   'Parto': 'Fêmea é cadastrada no bezerreiro. Macho só é cadastrado se você informar o brinco.',
 };
 function camposEvento() {
   const t = document.getElementById('fe-tipo').value, c = document.getElementById('fe-cria').value;
-  document.querySelectorAll('#mform [data-ev]').forEach(el => el.hidden = el.dataset.ev !== t || (el.dataset.cria && !el.dataset.cria.split(' ').includes(c.split(' ')[0])));
+  document.querySelectorAll('#mform [data-ev]').forEach(el => el.hidden = !el.dataset.ev.split('|').includes(t) || (el.dataset.cria && !el.dataset.cria.split(' ').includes(c.split(' ')[0])));
   document.getElementById('fe-data-rot').textContent = t === 'Monta natural' ? 'Início (touro entrou)' : 'Data';
   document.getElementById('fe-rot-brinco').textContent = c === 'Macho' ? 'Brinco do bezerro (opcional)' : 'Brinco da bezerra';
   const h = document.getElementById('fe-hint'); h.textContent = DICAS_EVENTO[t] || ''; h.hidden = !DICAS_EVENTO[t];
@@ -520,20 +538,51 @@ function excluirPremio(pid, id) {
 }
 
 // ---------- saída do rebanho ----------
+const CAUSAS_MORTE = ['Doença', 'Problema no parto', 'Nasceu morta / fraca', 'Diarreia', 'Pneumonia', 'Tristeza parasitária', 'Mastite', 'Timpanismo (estufamento)', 'Intoxicação', 'Picada de cobra', 'Acidente', 'Raio', 'Desconhecida', 'Outra'];
 function formSaida(id) {
   const a = BASE.porId.get(id);
   abrirModal({
     titulo: 'Saída do rebanho · ' + esc(a.brinco),
-    corpo: `<label>Motivo<select name="motivo" id="fs-motivo"><option>Venda</option><option>Descarte (venda para abate)</option><option>Morte</option><option>Doação</option></select></label>
+    corpo: `<label>Motivo<select name="motivo" id="fs-motivo" onchange="document.querySelectorAll('[data-morte]').forEach(e=>e.hidden=this.value!=='Morte')"><option>Venda</option><option>Descarte (venda para abate)</option><option>Morte</option><option>Doação</option></select></label>
     <label>Data<input name="data" id="fs-data" type="date" value="${iso(HOJE)}" required></label>
+    <label class="full" data-morte hidden>Causa da morte<select name="causa" id="fs-causa">${CAUSAS_MORTE.map(c => `<option>${c}</option>`).join('')}</select></label>
     <label>Valor recebido (R$)<input name="valor" id="fs-valor" type="number" step="0.01" min="0" placeholder="se houve venda"></label><label>Observação<input name="obs" id="fs-obs"></label>
     <div class="hint">O animal sai das listas, mas o histórico fica guardado. Se informar valor, a receita entra no Financeiro como venda de animais.</div>`,
     textoSalvar: 'Confirmar saída',
     salvar: async f => {
-      await q(sb.from('animais').update({ ativo: false, data_saida: f.data, motivo_saida: f.motivo }).eq('id', id));
-      await registrarEvento(id, f.data, 'Saída', [f.motivo, f.obs.trim()].filter(Boolean).join(' · '));
-      if (+f.valor > 0) await q(sb.from('lancamentos').insert({ data: f.data, tipo: 'receita', categoria: 'Venda de animais', descricao: `${f.motivo} · ${a.brinco}${a.nome ? ' ' + a.nome : ''}`, valor: +f.valor }));
+      const morte = f.motivo === 'Morte';
+      await q(sb.from('animais').update({ ativo: false, data_saida: f.data, motivo_saida: f.motivo, causa_morte: morte ? f.causa : null }).eq('id', id));
+      await registrarEvento(id, f.data, morte ? 'Óbito' : 'Saída', [f.motivo, morte ? f.causa : null, f.obs.trim()].filter(Boolean).join(' · '));
+      if (+f.valor > 0) await q(sb.from('lancamentos').insert({ data: f.data, tipo: 'receita', categoria: 'Venda de animais', fazenda_id: a.fazenda_id, descricao: `${f.motivo} · ${a.brinco}${a.nome ? ' ' + a.nome : ''}`, valor: +f.valor, pago: true, data_pagamento: f.data }));
       await depoisDeSalvar(`${a.nome || a.brinco} saiu do rebanho`);
+    }
+  });
+}
+
+// ---------- venda ou transferência entre fazendas do grupo ----------
+// O animal muda de fazenda. Com valor, vira receita da fazenda que vendeu e despesa da que comprou.
+function formTransferir(id) {
+  const a = BASE.porId.get(id), origem = a.fazenda_id ? BASE.fazPorId.get(a.fazenda_id) : null;
+  const destinos = BASE.fazendas.filter(f => f.ativo && f.id !== a.fazenda_id);
+  abrirModal({
+    titulo: 'Vender para outra fazenda · ' + esc(nomeCurto(a)),
+    corpo: `<div class="full muted">Hoje está em: <b>${esc(origem ? origem.nome : 'sem fazenda')}</b></div>
+    <label>Fazenda que vai receber<select name="destino" id="ft-destino" required><option value="">Escolha…</option>${destinos.map(f => `<option value="${f.id}">${esc(f.nome)}</option>`).join('')}</select></label>
+    <label>Data<input name="data" id="ft-data" type="date" value="${iso(HOJE)}" required></label>
+    <label>Valor (R$)<input name="valor" id="ft-valor" type="number" step="0.01" min="0" placeholder="deixe em branco se for só transferência"></label>
+    <label>Observação<input name="obs" id="ft-obs"></label>
+    <div class="hint">Com valor, o Financeiro recebe dois lançamentos: receita "Venda de animais" na fazenda que vendeu e despesa "Compra de animais" na que comprou. Sem valor, o animal só muda de fazenda.</div>`,
+    textoSalvar: 'Confirmar',
+    salvar: async f => {
+      const dest = BASE.fazPorId.get(+f.destino); if (!dest) throw new Error('escolha a fazenda que vai receber.');
+      const valor = +f.valor || 0, quem = `${a.brinco}${a.nome ? ' ' + a.nome : ''}`;
+      await q(sb.from('animais').update({ fazenda_id: dest.id }).eq('id', id));
+      await registrarEvento(id, f.data, valor ? 'Venda entre fazendas' : 'Transferência', `${origem ? origem.nome : 'sem fazenda'} → ${dest.nome}${valor ? ' · ' + brl(valor) : ''}${f.obs.trim() ? ' · ' + f.obs.trim() : ''}`);
+      if (valor) await q(sb.from('lancamentos').insert([
+        { data: f.data, tipo: 'receita', categoria: 'Venda de animais', fazenda_id: a.fazenda_id, descricao: `Venda de ${quem} para ${dest.nome}`, valor, pago: true, data_pagamento: f.data },
+        { data: f.data, tipo: 'despesa', categoria: 'Compra de animais', fazenda_id: dest.id, descricao: `Compra de ${quem} de ${origem ? origem.nome : 'outra fazenda'}`, valor, pago: true, data_pagamento: f.data },
+      ]));
+      await depoisDeSalvar(`${a.nome || a.brinco} agora é da ${dest.nome}`);
     }
   });
 }

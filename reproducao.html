@@ -18,11 +18,60 @@
 <script>
 (async () => { if (!await iniciarPagina('reproducao')) return; window.aoSalvar = carregar; carregar(); })();
 
+let rDe = iso(addD(HOJE, -365)), rAte = iso(HOJE), fCio = 'Todos', fMetodo = 'Todos', NOMES_R = new Map();
+const METODO = { 'Inseminação': 'Inseminação', 'Monta natural': 'Touro (monta)', 'Transferência de embrião': 'Embrião (TE)' };
+
+// Resultado de cada cobrição: o que veio depois dela, antes da próxima cobrição da mesma vaca
+function resultadosCobricoes(evs) {
+  const porVaca = new Map();
+  evs.forEach(e => { if (!porVaca.has(e.animal_id)) porVaca.set(e.animal_id, []); porVaca.get(e.animal_id).push(e); });
+  const saida = [];
+  porVaca.forEach(lista => {
+    lista.sort((a, b) => a.data.localeCompare(b.data) || a.id - b.id);
+    lista.forEach((e, i) => {
+      if (!COBRICOES.includes(e.tipo)) return;
+      let res = 'Aguardando';
+      for (const x of lista.slice(i + 1)) {
+        if (COBRICOES.includes(x.tipo)) { res = 'Repetiu'; break; }
+        if (x.tipo === 'Diagnóstico positivo' || x.tipo === 'Parto' || x.tipo === 'Aborto') { res = 'Prenhe'; break; }
+        if (x.tipo === 'Diagnóstico negativo') { res = 'Vazia'; break; }
+      }
+      saida.push({ ...e, resultado: res });
+    });
+  });
+  return saida;
+}
+const sucesso = c => c.resultado === 'Prenhe', decidida = c => c.resultado !== 'Aguardando';
+function taxa(lista) { const d = lista.filter(decidida); return d.length ? { pct: d.filter(sucesso).length / d.length * 100, n: d.length, ok: d.filter(sucesso).length } : null; }
+const pillRes = r => r === 'Prenhe' ? pill('Emprenhou', 'ok') : r === 'Vazia' ? pill('Não emprenhou', 'bad') : r === 'Repetiu' ? pill('Repetiu cio', 'warn') : pill('Aguardando diagnóstico', 'mute');
+const nomeAnimalR = id => { const a = BASE.porId.get(id) || NOMES_R.get(id); return a ? animLink(a) : '<span class="muted">—</span>'; };
+
+// gráfico de barras verticais com porcentagem (taxa de concepção por mês)
+function barrasPct(cols) {
+  if (!cols.length) return '<div class="empty">Sem cobrições com resultado no período.</div>';
+  const W = 640, H = 230, pl = 40, pb = 40, pt = 22, bw = (W - pl - 10) / cols.length, y = v => pt + (100 - v) * (H - pt - pb) / 100;
+  let g = ''; for (let v = 0; v <= 100; v += 25) g += `<line class="ch-grid" x1="${pl}" x2="${W - 10}" y1="${y(v)}" y2="${y(v)}"/><text class="ch-tick" x="${pl - 6}" y="${y(v) + 4}" text-anchor="end">${v}%</text>`;
+  cols.forEach((c, i) => {
+    const bx = pl + i * bw + 4, w = bw - 8, cx = bx + w / 2;
+    g += c.t ? `<rect x="${bx}" y="${y(c.t.pct)}" width="${w}" height="${y(0) - y(c.t.pct)}" rx="4" style="fill:${c.t.pct >= 50 ? 'var(--ok)' : c.t.pct >= 35 ? 'var(--accent)' : 'var(--warn)'}"/><text class="ch-val" x="${cx}" y="${y(c.t.pct) - 6}" text-anchor="middle">${nf(c.t.pct)}%</text>` : '';
+    g += `<text class="ch-tick" x="${cx}" y="${H - 22}" text-anchor="middle">${c.rot}</text><text class="ch-tick" x="${cx}" y="${H - 8}" text-anchor="middle">${c.t ? c.t.ok + '/' + c.t.n : '—'}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Taxa de concepção por mês">${g}</svg><p class="muted" style="margin:6px 0 0;font-size:.8rem">Embaixo: quantas emprenharam / quantas cobrições já tiveram resultado. Verde a partir de 50%.</p>`;
+}
+// barras horizontais por inseminador
+function barrasInseminador(linhas) {
+  if (!linhas.length) return '<div class="empty">Nenhuma inseminação com inseminador informado e resultado no período.</div>';
+  const rowH = 38, pl = 150, pr = 110, W = 640, H = linhas.length * rowH + 8, x = v => pl + v / 100 * (W - pl - pr);
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Taxa de concepção por inseminador">${linhas.map((l, i) => { const yy = i * rowH + 4; return `<text class="ch-lbl" x="0" y="${yy + 20}">${i === 0 && linhas.length > 1 ? '🏆 ' : ''}${esc(l.nome.length > 18 ? l.nome.slice(0, 17) + '…' : l.nome)}</text>
+    <rect x="${pl}" y="${yy + 6}" width="${W - pl - pr}" height="${rowH - 14}" rx="5" style="fill:var(--sunk)"/>
+    <rect x="${pl}" y="${yy + 6}" width="${Math.max(2, x(l.t.pct) - pl)}" height="${rowH - 14}" rx="5" style="fill:${i === 0 ? 'var(--gold)' : 'var(--accent)'}"/>
+    <text class="ch-val" x="${x(l.t.pct) + 6}" y="${yy + 22}">${nf(l.t.pct)}% · ${l.t.ok}/${l.t.n}</text>`; }).join('')}</svg>`;
+}
+
 async function carregar() {
   const main = document.getElementById('main');
   try {
     await carregarBase();
-    const eventos = await q(sb.from('eventos').select('*').in('tipo', TIPOS_EVENTO).gte('data', iso(addD(HOJE, -45))).order('data', { ascending: false }).order('id', { ascending: false }).limit(40));
     const al = calcAlertas(), A = BASE.animais;
     const vacas = A.filter(a => a.categoria === 'Lactação' || a.categoria === 'Seca'), pren = vacas.filter(a => a.situacao_reprodutiva === 'Prenhe');
     const media = arr => arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null;
@@ -30,6 +79,35 @@ async function carregar() {
     const iep = media(pren.filter(a => a.data_ultimo_parto).map(a => dd(prevParto(a), pd(a.data_ultimo_parto))));
     const pc = media(pren.filter(a => a.data_ultimo_parto).map(a => dd(pd(a.data_ultima_ia), pd(a.data_ultimo_parto))));
     const bloco = (t, sub, arr, fn) => `<section class="card"><header><h2>${t}</h2><span>${sub}</span></header><div class="list">${arr.length ? arr.map(a => `<div class="li" onclick="ficha(${a.id})"><span>${animLink(a)}<br><small>${fn(a)}</small></span></div>`).join('') : '<div class="empty">Nada pendente.</div>'}</div></section>`;
+
+    // eventos para a análise: do início do período (com folga para trás) até hoje, para achar o resultado das cobrições
+    const tipos = [...COBRICOES, 'Diagnóstico positivo', 'Diagnóstico negativo', 'Parto', 'Aborto'];
+    const evsTodos = await buscarPaginado(() => sb.from('eventos').select('id,animal_id,data,tipo,detalhe,tipo_cio,inseminador_id,touro_id,touro_animal_id').in('tipo', tipos).gte('data', iso(addD(pd(rDe), -320))).order('data').order('id'));
+    const fora = [...new Set(evsTodos.map(e => e.animal_id).filter(id => !BASE.porId.get(id)))];
+    NOMES_R = new Map(fora.length ? (await buscarPaginado(() => sb.from('animais').select('id,brinco,nome,fazenda_id,ativo').in('id', fora).order('id'))).map(a => [a.id, a]) : []);
+    const daFazenda = id => !BASE.fazenda || BASE.porId.get(id) || (NOMES_R.get(id) || {}).fazenda_id === BASE.fazenda.id;
+    const evs = evsTodos.filter(e => daFazenda(e.animal_id));
+    const noPeriodo = e => e.data >= rDe && e.data <= rAte;
+    const cobr = resultadosCobricoes(evs).filter(noPeriodo);
+    const diags = evs.filter(e => (e.tipo === 'Diagnóstico positivo' || e.tipo === 'Diagnóstico negativo') && noPeriodo(e)).sort((a, b) => b.data.localeCompare(a.data));
+    const ultCobr = new Map(); resultadosCobricoes(evs).forEach(c => { const l = ultCobr.get(c.animal_id) || []; l.push(c); ultCobr.set(c.animal_id, l); });
+    const cobrAntes = d => (ultCobr.get(d.animal_id) || []).filter(c => c.data <= d.data).slice(-1)[0];
+    const insNome = id => (BASE.inseminadores.find(i => i.id === id) || {}).nome;
+    const touroNome = c => c.touro_animal_id ? nomeCurto(BASE.todosAnimais.find(x => x.id === c.touro_animal_id) || NOMES_R.get(c.touro_animal_id)) : c.touro_id ? (BASE.touros.find(t => t.id === c.touro_id) || {}).codigo : (c.detalhe || '').split(' · ')[0];
+    const tx = taxa(cobr);
+
+    // por mês
+    const meses = []; for (let d = new Date(pd(rDe).getFullYear(), pd(rDe).getMonth(), 1); d <= pd(rAte); d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) meses.push(iso(d).slice(0, 7));
+    const colsMes = meses.map(m => ({ rot: mesTxt(m + '-01'), t: taxa(cobr.filter(c => c.data.startsWith(m))) }));
+    // por inseminador
+    const porIns = BASE.inseminadores.map(i => ({ nome: i.nome, t: taxa(cobr.filter(c => c.inseminador_id === i.id)) })).filter(l => l.t).sort((a, b) => b.t.pct - a.t.pct || b.t.n - a.t.n);
+    // touros: sêmen do botijão e touros de monta
+    const tourosSemen = BASE.touros.filter(t => t.ativo).map(t => ({ tipo: 'Sêmen', nome: t.codigo, raca: t.raca, extra: `${t.doses} doses${t.sexado ? ' · sexado' : ''}`, repor: t.doses <= 3, l: cobr.filter(c => c.touro_id === t.id), semen: t }));
+    const tourosMonta = BASE.todosAnimais.filter(t => t.categoria === 'Touro' && t.ativo).map(t => ({ tipo: 'Monta', nome: nomeCurto(t), raca: t.raca, extra: t.fazenda_id ? BASE.fazPorId.get(t.fazenda_id)?.nome || '' : '', l: cobr.filter(c => c.touro_animal_id === t.id), animal: t }));
+    const todosTouros = [...tourosSemen, ...tourosMonta].map(x => ({ ...x, t: taxa(x.l) }));
+    // tabela de cobrições filtrada
+    const cobrF = cobr.filter(c => (fCio === 'Todos' || c.tipo_cio === fCio) && (fMetodo === 'Todos' || c.tipo === fMetodo)).sort((a, b) => b.data.localeCompare(a.data));
+    const chip = (v, atual, fn, n) => `<button class="chip ${v === atual ? 'on' : ''}" onclick="${fn}='${v}';carregar()">${v === 'Monta natural' ? 'Touro (monta)' : v === 'Transferência de embrião' ? 'Embrião (TE)' : v}<em>${n}</em></button>`;
 
     main.innerHTML = head('Reprodução', 'Inseminação, diagnóstico de gestação, secagem e partos. Os prazos são calculados sozinhos a partir das datas lançadas.' + notaFazenda(), `<button class="btn pri" onclick="formEvento()">Registrar evento reprodutivo</button>`) +
     `<div class="kpis">
@@ -47,15 +125,53 @@ async function carregar() {
       ${bloco('Partos previstos', 'próximos 30 dias', al.partos, a => `${a.categoria} · parto ${fd(prevParto(a))} · pré-parto desde ${fd(addD(prevParto(a), -DIAS_PRE_PARTO))}`)}
       ${bloco('Problema reprodutivo', 'vazias com DEL acima de 150', al.problema, a => `DEL ${delDe(a)} · ${a.ias_no_ciclo || 0} IA sem prenhez`)}
     </div>
+
+    <div class="vhead" style="margin-top:8px"><div><h1 style="font-size:1.25rem">Análise do período</h1><p>Resultado das inseminações e coberturas entre as datas escolhidas.</p></div>
+      <div class="actions"><label class="muted" style="font-size:.8rem" for="rDe">De</label><input type="date" id="rDe" class="search" style="width:auto" value="${rDe}" onchange="rDe=this.value||rDe;carregar()">
+      <label class="muted" style="font-size:.8rem" for="rAte">até</label><input type="date" id="rAte" class="search" style="width:auto" value="${rAte}" onchange="rAte=this.value||rAte;carregar()"></div></div>
+    <div class="kpis">
+      ${kpi('Taxa de concepção', tx ? nf(tx.pct) + '%' : '—', tx ? `${tx.ok} de ${tx.n} cobrições com resultado · meta 50%` : 'sem resultados no período')}
+      ${kpi('Cobrições no período', cobr.length, `${cobr.filter(c => c.tipo === 'Inseminação').length} inseminações · ${cobr.filter(c => c.tipo === 'Monta natural').length} montas`)}
+      ${kpi('Cio natural x IATF', `${cobr.filter(c => c.tipo_cio === 'Cio natural').length} / ${cobr.filter(c => c.tipo_cio === 'IATF').length}`, 'cobrições de cada tipo')}
+      ${kpi('Aguardando diagnóstico', cobr.filter(c => c.resultado === 'Aguardando').length, 'ainda sem resultado')}
+    </div>
     <div class="grid g2e">
-      <section class="card"><header><h2>Botijão de sêmen</h2><button class="btn sm" onclick="formTouro()">Cadastrar touro</button></header>
-        ${BASE.touros.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Touro</th><th>Raça</th><th class="num">Doses</th><th class="num">R$/dose</th><th></th></tr></thead><tbody>
-        ${BASE.touros.filter(t => t.ativo).map(t => `<tr><td><b>${esc(t.codigo)}</b>${t.sexado ? ' ' + pill('sexado', 'acc') : ''}<br><small class="muted">${esc(t.central || '')}</small></td><td class="muted">${esc(t.raca || '—')}</td><td class="num mono">${t.doses} ${t.doses <= 3 ? pill('repor', 'warn') : ''}</td><td class="num mono">${brl(t.preco_dose)}</td><td><button class="btn sm" data-ajuda="Registra a chegada de doses de sêmen deste touro no botijão. Pode lançar a compra no Financeiro." onclick="formDoses(${t.id})">Entrada</button> <button class="btn sm" onclick="formTouro(${t.id})">Editar</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Cadastre os touros do botijão para dar baixa automática a cada inseminação.</div>'}
-        ${BASE.touros.filter(t => !t.ativo).map(t => ({ id: t.id, nome: t.codigo, doses: t.doses })).length ? `<div class="sec-t">Touros fora do botijão</div><div class="list">${BASE.touros.filter(t => !t.ativo).map(t => ({ id: t.id, nome: t.codigo, doses: t.doses })).map(x => `<div class="li" style="cursor:default"><span><span class="nm">${esc(x.nome)}</span><br><small>${x.doses} doses</small></span><button class="btn sm" onclick="reativarTouro(${x.id})">Reativar</button></div>`).join('')}</div>` : ''}</section>
-      <section class="card"><header><h2>Eventos recentes</h2><span>últimos 45 dias</span></header>
-        ${eventos.length ? `<div class="scroll"><table class="tbl"><tbody>${eventos.map(e => { const a = BASE.porId.get(e.animal_id); return `<tr ${a ? `class="click" onclick="ficha(${a.id})"` : ''}><td class="mono">${fd(e.data)}</td><td>${a ? animLink(a) : '<span class="muted">animal fora do rebanho</span>'}</td><td><b>${esc(e.tipo)}</b><br><small class="muted">${esc(e.detalhe || '')}</small></td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Nenhum evento reprodutivo nos últimos 45 dias.</div>'}</section>
+      <section class="card"><header><h2>Taxa de concepção por mês</h2><span>% das cobrições que emprenharam</span></header>${barrasPct(colsMes)}</section>
+      <section class="card"><header><h2>Melhor inseminador</h2><span>% de acerto de cada um no período</span></header>${barrasInseminador(porIns)}</section>
+    </div>
+
+    <section class="card mb"><header><h2>Touros</h2><div class="actions"><button class="btn sm" onclick="formTouro()">Cadastrar sêmen</button><button class="btn sm" onclick="formAnimal(null,'Touro')">Cadastrar touro de monta</button></div></header>
+      ${todosTouros.length ? `<div class="scroll" style="max-height:380px;overflow:auto"><table class="tbl"><thead><tr><th>Touro</th><th>Tipo</th><th>Raça</th><th>Doses / fazenda</th><th class="num">Cobrições</th><th class="num">Emprenharam</th><th class="num">Taxa</th><th></th></tr></thead><tbody>
+      ${todosTouros.map(x => `<tr><td><b>${esc(x.nome)}</b>${x.semen && x.semen.central ? `<br><small class="muted">${esc(x.semen.central)}</small>` : ''}</td><td>${pill(x.tipo, x.tipo === 'Sêmen' ? 'info' : 'acc')}</td><td class="muted">${esc(x.raca || '—')}</td><td class="mono">${esc(x.extra || '—')} ${x.repor ? pill('repor', 'warn') : ''}</td><td class="num mono">${x.l.length}</td><td class="num mono">${x.t ? x.t.ok : '—'}</td><td class="num mono">${x.t ? nf(x.t.pct) + '%' : '—'}</td><td style="white-space:nowrap">${x.semen ? `<button class="btn sm" data-ajuda="Registra a chegada de doses de sêmen deste touro no botijão. Pode lançar a compra no Financeiro." onclick="formDoses(${x.semen.id})">Entrada</button> <button class="btn sm" onclick="formTouro(${x.semen.id})">Editar</button>` : `<button class="btn sm" onclick="ficha(${x.animal.id})">Ficha</button>`}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Cadastre o sêmen do botijão e os touros de monta.</div>'}
+      ${BASE.touros.some(t => !t.ativo) ? `<div class="sec-t">Touros fora do botijão</div><div class="list">${BASE.touros.filter(t => !t.ativo).map(x => `<div class="li" style="cursor:default"><span><span class="nm">${esc(x.codigo)}</span><br><small>${x.doses} doses</small></span><button class="btn sm" onclick="reativarTouro(${x.id})">Reativar</button></div>`).join('')}</div>` : ''}</section>
+
+    <section class="card mb"><header><h2>Cobrições</h2><div class="actions"><div class="chips">${['Todos', 'Cio natural', 'IATF'].map(v => chip(v, fCio, 'fCio', v === 'Todos' ? cobr.length : cobr.filter(c => c.tipo_cio === v).length)).join('')}</div><div class="chips">${['Todos', ...COBRICOES].map(v => chip(v, fMetodo, 'fMetodo', v === 'Todos' ? cobr.length : cobr.filter(c => c.tipo === v).length)).join('')}</div></div></header>
+      ${cobrF.length ? `<div class="scroll" style="max-height:460px;overflow:auto"><table class="tbl"><thead><tr><th>Data</th><th>Vaca</th><th>Método</th><th>Cio</th><th>Touro</th><th>Inseminador</th><th>Resultado</th></tr></thead><tbody>
+      ${cobrF.map(c => `<tr ${BASE.porId.get(c.animal_id) ? `class="click" onclick="ficha(${c.animal_id})"` : ''}><td class="mono">${fdy(c.data)}</td><td>${nomeAnimalR(c.animal_id)}</td><td>${METODO[c.tipo]}</td><td>${c.tipo_cio ? pill(c.tipo_cio, c.tipo_cio === 'IATF' ? 'info' : 'acc') : '<span class="muted">—</span>'}</td><td class="muted">${esc(touroNome(c) || '—')}</td><td class="muted">${esc(insNome(c.inseminador_id) || '—')}</td><td>${pillRes(c.resultado)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nenhuma cobrição com esse filtro no período.</div>'}</section>
+
+    <div class="grid g2e">
+      <section class="card"><header><h2>Diagnósticos de gestação</h2><span>${diags.filter(d => d.tipo === 'Diagnóstico positivo').length} positivos · ${diags.filter(d => d.tipo === 'Diagnóstico negativo').length} negativos</span></header>
+        ${diags.length ? `<div class="scroll" style="max-height:420px;overflow:auto"><table class="tbl"><thead><tr><th>Data</th><th>Vaca</th><th>Resultado</th><th>Cobrição</th><th>Detalhe</th></tr></thead><tbody>
+        ${diags.map(d => { const c = cobrAntes(d); return `<tr ${BASE.porId.get(d.animal_id) ? `class="click" onclick="ficha(${d.animal_id})"` : ''}><td class="mono">${fdy(d.data)}</td><td>${nomeAnimalR(d.animal_id)}</td><td>${d.tipo === 'Diagnóstico positivo' ? pill('Positivo', 'ok') : pill('Negativo', 'bad')}</td><td class="muted">${c ? fd(c.data) + ' · ' + METODO[c.tipo] : '—'}</td><td class="muted">${esc(d.detalhe || '')}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Nenhum diagnóstico no período.</div>'}</section>
+      <section class="card"><header><h2>Inseminadores</h2><button class="btn sm" onclick="formInseminador()">Cadastrar inseminador</button></header>
+        ${BASE.inseminadores.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Nome</th><th>Telefone</th><th class="num">Inseminações</th><th class="num">Taxa</th><th></th></tr></thead><tbody>
+        ${BASE.inseminadores.map(i => { const l = cobr.filter(c => c.inseminador_id === i.id), t = taxa(l); return `<tr><td><b>${esc(i.nome)}</b>${i.ativo ? '' : ' ' + pill('desativado', 'mute')}</td><td class="mono muted">${esc(i.telefone || '—')}</td><td class="num mono">${l.length}</td><td class="num mono">${t ? nf(t.pct) + '%' : '—'}</td><td><button class="btn sm" onclick="formInseminador(${i.id})">Editar</button></td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty">Cadastre quem faz as inseminações para escolher no evento e comparar o acerto de cada um.</div>'}</section>
     </div>`;
   } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar a reprodução</b>${esc(e.message)}</div></div>`; }
+}
+
+function formInseminador(id) {
+  const i = id ? BASE.inseminadores.find(x => x.id === id) : null;
+  abrirModal({
+    titulo: i ? 'Editar inseminador' : 'Cadastrar inseminador',
+    corpo: `<label>Nome<input name="nome" id="fi-nome" required value="${i ? esc(i.nome) : ''}"></label><label>Telefone<input name="telefone" id="fi-tel" value="${i ? esc(i.telefone || '') : ''}"></label>
+    ${i ? `<label class="chk full"><input type="checkbox" name="ativo" id="fi-ativo" ${i.ativo ? 'checked' : ''}> Ativo (aparece na lista ao registrar inseminação)</label>` : ''}`,
+    salvar: async f => {
+      const reg = { nome: f.nome.trim(), telefone: f.telefone.trim() || null };
+      if (i) { reg.ativo = !!f.ativo; await q(sb.from('inseminadores').update(reg).eq('id', id)); } else await q(sb.from('inseminadores').insert(reg));
+      await depoisDeSalvar('Inseminador salvo');
+    }
+  });
 }
 
 async function reativarTouro(id) {
@@ -88,7 +204,7 @@ function formDoses(id) {
     <label class="chk full"><input type="checkbox" name="lancar" id="td-lancar" checked> Lançar a compra no Financeiro (despesa de reprodução)</label>`,
     salvar: async f => {
       await q(sb.from('touros').update({ doses: t.doses + +f.qtd, preco_dose: +f.preco || t.preco_dose }).eq('id', id));
-      if (f.lancar && +f.preco > 0) await q(sb.from('lancamentos').insert({ data: f.data, tipo: 'despesa', categoria: 'Reprodução', descricao: `Sêmen ${t.codigo} · ${f.qtd} doses`, valor: +f.qtd * +f.preco }));
+      if (f.lancar && +f.preco > 0) await q(sb.from('lancamentos').insert({ data: f.data, tipo: 'despesa', categoria: 'Reprodução', descricao: `Sêmen ${t.codigo} · ${f.qtd} doses`, valor: +f.qtd * +f.preco, pago: true, data_pagamento: f.data, fazenda_id: BASE.fazenda ? BASE.fazenda.id : null }));
       await depoisDeSalvar(`${f.qtd} doses de ${t.codigo} adicionadas`);
     }
   });

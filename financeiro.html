@@ -14,69 +14,111 @@
 <script src="supabase-config.js"></script>
 <script src="layout.js"></script>
 <script src="glossario.js"></script>
+<script src="animal.js"></script>
 <script>
-const CAT = {
-  receita: ['Venda de leite', 'Venda de animais', 'Outras receitas'],
-  despesa: ['Alimentação', 'Mão de obra', 'Sanidade', 'Reprodução', 'Energia', 'Combustível', 'Manutenção', 'Impostos e taxas', 'Arrendamento', 'Outras despesas'],
-};
-let mesSel = iso(HOJE).slice(0, 7), LANC = [], soNotas = false;
+let mesSel = iso(HOJE).slice(0, 7), LANC = [], PEND = [], CATS = { receita: [], despesa: [] }, CATS_TODAS = [], soNotas = false;
 const BUCKET_NF = 'notas-fiscais';
-(async () => { if (!await iniciarPagina('financeiro')) return; carregar(); })();
-async function depoisDeSalvar(m) { toast(m); await carregar(); }
+(async () => { if (!await iniciarPagina('financeiro')) return; window.aoSalvar = carregar; carregar(); })();
 
+const nomeFaz = id => id ? (BASE.fazPorId.get(id)?.nome || '—') : 'Geral';
+// lançamento vencido = pendente com data anterior a hoje
+const situacaoLanc = l => l.pago ? pill(l.tipo === 'receita' ? 'Recebido' : 'Pago', 'ok') : pd(l.data) < HOJE ? pill('Atrasado', 'bad') : pill(l.tipo === 'receita' ? 'A receber' : 'A pagar', 'warn');
 function mesesAte(ym, n) { const [y, m] = ym.split('-').map(Number); return Array.from({ length: n }, (_, i) => { const d = new Date(y, m - 1 - (n - 1 - i), 1); return iso(d).slice(0, 7); }); }
+
 async function carregar() {
   const main = document.getElementById('main');
   try {
+    await carregarBase();
     const meses = mesesAte(mesSel, 6), ini = meses[0] + '-01', [y, m] = mesSel.split('-').map(Number), fim = iso(new Date(y, m, 0));
-    const [lanc, tanque] = await Promise.all([
+    const [lancTodos, tanqueTodo, cats, pendTodos] = await Promise.all([
       buscarPaginado(() => sb.from('lancamentos').select('*').gte('data', ini).lte('data', fim).order('data', { ascending: false }).order('id', { ascending: false })),
-      buscarPaginado(() => sb.from('producao_tanque').select('data,litros').gte('data', ini).lte('data', fim).order('data')),
+      buscarPaginado(() => sb.from('producao_tanque').select('data,litros,fazenda_id').gte('data', ini).lte('data', fim).order('data')),
+      q(sb.from('categorias_financeiras').select('*').order('ordem').order('nome')),
+      buscarPaginado(() => sb.from('lancamentos').select('*').eq('pago', false).lte('data', iso(addD(HOJE, 90))).order('data')),
     ]);
-    LANC = lanc;
+    CATS_TODAS = cats;
+    CATS = { receita: cats.filter(c => c.tipo === 'receita' && c.ativo).map(c => c.nome), despesa: cats.filter(c => c.tipo === 'despesa' && c.ativo).map(c => c.nome) };
+    const fz = BASE.fazenda;
+    // com uma fazenda escolhida, só os lançamentos dela; os "gerais" (sem fazenda) ficam fora e são avisados
+    const lanc = fz ? lancTodos.filter(l => l.fazenda_id === fz.id) : lancTodos;
+    const gerais = fz ? lancTodos.filter(l => !l.fazenda_id) : [];
+    const tanqueFz = fz ? tanqueTodo.filter(t => t.fazenda_id === fz.id) : tanqueTodo;
+    LANC = lancTodos; PEND = fz ? pendTodos.filter(l => l.fazenda_id === fz.id) : pendTodos;
     const doMes = ym => lanc.filter(l => l.data.startsWith(ym)), soma = (arr, t) => arr.filter(l => l.tipo === t).reduce((s, l) => s + Number(l.valor), 0);
-    const litros = ym => tanque.filter(t => t.data.startsWith(ym)).reduce((s, t) => s + Number(t.litros), 0);
+    const litros = ym => tanqueFz.filter(t => t.data.startsWith(ym)).reduce((s, t) => s + Number(t.litros), 0);
     const atual = doMes(mesSel), lista = soNotas ? atual.filter(l => l.nf_numero || l.arquivo) : atual, rec = soma(atual, 'receita'), desp = soma(atual, 'despesa'), lt = litros(mesSel);
+    const pendMes = atual.filter(l => !l.pago), aPagar = pendMes.filter(l => l.tipo === 'despesa').reduce((s, l) => s + Number(l.valor), 0), aReceber = pendMes.filter(l => l.tipo === 'receita').reduce((s, l) => s + Number(l.valor), 0);
     const recLeite = atual.filter(l => l.categoria === 'Venda de leite').reduce((s, l) => s + Number(l.valor), 0);
     const nomeMes = mesTxt(mesSel + '-01');
-    const cats = [...CAT.receita.map(c => ['receita', c]), ...CAT.despesa.map(c => ['despesa', c])].filter(([t, c]) => lanc.some(l => l.tipo === t && l.categoria === c));
-    const extra = [...new Set(lanc.map(l => l.tipo + '|' + l.categoria))].filter(k => !cats.some(([t, c]) => t + '|' + c === k)).map(k => k.split('|'));
+    const ordemCat = [...CATS.receita.map(c => ['receita', c]), ...CATS.despesa.map(c => ['despesa', c])];
+    const usadas = [...new Set(lanc.map(l => l.tipo + '|' + l.categoria))].map(k => k.split('|'));
+    const linhasCat = [...ordemCat.filter(([t, c]) => usadas.some(u => u[0] === t && u[1] === c)), ...usadas.filter(([t, c]) => !ordemCat.some(o => o[0] === t && o[1] === c))];
+    const variasFaz = !fz && BASE.fazendas.filter(f => f.ativo).length > 1;
 
-    main.innerHTML = head('Financeiro da atividade', 'Receitas e despesas da produção de leite, mês a mês. Compras de insumo, sêmen, vacinas, vendas de animais e o leite do laticínio podem entrar aqui sozinhos.',
-      `<input type="month" id="mesSel" class="search" style="width:auto" value="${mesSel}" onchange="mesSel=this.value||mesSel;carregar()"><button class="btn" onclick="formLanc(null, true)">Lançar nota fiscal</button><button class="btn pri" onclick="formLanc()">Novo lançamento</button>`) +
+    main.innerHTML = head('Financeiro da atividade' + (fz ? ' · ' + esc(fz.nome) : ''), 'Receitas e despesas mês a mês. Compras de insumo, sêmen, vacinas, vendas de animais e o leite do laticínio podem entrar aqui sozinhos.' + (fz ? ` <b>Mostrando só ${esc(fz.nome)}.</b>` : ''),
+      `<input type="month" id="mesSel" class="search" style="width:auto" value="${mesSel}" onchange="mesSel=this.value||mesSel;carregar()"><button class="btn" onclick="formCategorias()">Categorias</button><button class="btn" onclick="formLanc(null, true)">Lançar nota fiscal</button><button class="btn pri" onclick="formLanc()">Novo lançamento</button>`) +
     `<div class="kpis">
       ${kpi('Receitas · ' + nomeMes, brl(rec, 0), recLeite ? 'leite ' + brl(recLeite, 0) : 'nenhuma venda de leite lançada')}
       ${kpi('Despesas · ' + nomeMes, brl(desp, 0), atual.filter(l => l.tipo === 'despesa').length + ' lançamentos')}
       ${kpi('Resultado · ' + nomeMes, `<span class="${rec - desp < 0 ? 'down' : ''}">${brl(rec - desp, 0)}</span>`, lt ? 'margem de ' + brl((rec - desp) / lt) + ' por litro' : '')}
-      ${kpi('Custo por litro', lt && desp ? brl(desp / lt) : '—', lt ? nf(lt) + ' L entregues no mês' : 'lance o tanque em Produção')}
+      ${kpi('Custo por litro', lt && desp ? brl(desp / lt) : '—', lt ? nf(lt) + ' L entregues no mês' : fz ? 'sem tanque lançado para esta fazenda' : 'lance o tanque em Produção')}
+      ${kpi('Pendente no mês', brl(aPagar, 0), aReceber ? 'a pagar · ' + brl(aReceber, 0) + ' a receber' : 'a pagar')}
     </div>
+    ${gerais.length ? `<div class="card mb" style="padding:10px 14px"><span class="muted">Há ${gerais.length} lançamento(s) <b>gerais</b> (sem fazenda) no período, somando ${brl(gerais.reduce((s, l) => s + Number(l.valor) * (l.tipo === 'despesa' ? -1 : 1), 0))}. Eles não entram nos números desta fazenda. Escolha "Todas as fazendas" para ver tudo junto.</span></div>` : ''}
+    ${PEND.length ? `<section class="card mb"><header><h2>Contas e parcelas pendentes</h2><span>atrasadas e as que vencem nos próximos 90 dias</span></header><div class="scroll" style="max-height:340px;overflow:auto"><table class="tbl"><thead><tr><th>Vencimento</th><th>Situação</th>${variasFaz ? '<th>Fazenda</th>' : ''}<th>Categoria</th><th>Descrição</th><th>Parcela</th><th class="num">Valor</th><th></th></tr></thead><tbody>
+      ${PEND.map(l => `<tr><td class="mono">${fdy(l.data)}</td><td>${situacaoLanc(l)}</td>${variasFaz ? `<td class="muted">${esc(nomeFaz(l.fazenda_id))}</td>` : ''}<td>${esc(l.categoria)}</td><td>${esc(l.descricao || '')}${l.fornecedor ? `<br><small class="muted">${esc(l.fornecedor)}</small>` : ''}</td><td class="mono">${l.parcela_total ? l.parcela_num + '/' + l.parcela_total : '—'}</td><td class="num mono ${l.tipo === 'receita' ? 'up' : ''}">${l.tipo === 'despesa' ? '−' : '+'}${brl(l.valor)}</td><td style="white-space:nowrap"><button class="btn sm pri" onclick="formPagar(${l.id})">${l.tipo === 'receita' ? 'Recebi' : 'Paguei'}</button></td></tr>`).join('')}</tbody></table></div></section>` : ''}
     <section class="card mb"><header><h2>Receitas x despesas · 6 meses</h2><span class="legend"><span><i style="background:var(--accent)"></i>receitas</span><span><i style="background:var(--cost)"></i>despesas</span></span></header>
       ${lanc.length ? barsChart(meses.map(ym => ({ m: mesTxt(ym + '-01'), a: soma(doMes(ym), 'receita'), b: soma(doMes(ym), 'despesa') }))) : '<div class="empty">Nenhum lançamento nos últimos 6 meses.</div>'}</section>
-    ${cats.length + extra.length ? `<section class="card mb"><header><h2>Resultado por categoria</h2><span>valores em R$</span></header><div class="scroll"><table class="tbl"><thead><tr><th></th>${meses.map(ym => `<th class="num">${mesTxt(ym + '-01')}</th>`).join('')}</tr></thead><tbody>
-      ${[...cats, ...extra].map(([t, c]) => `<tr><td>${esc(c)}</td>${meses.map(ym => { const v = doMes(ym).filter(l => l.tipo === t && l.categoria === c).reduce((s, l) => s + Number(l.valor), 0); return `<td class="num mono ${t === 'despesa' ? 'muted' : ''}">${v ? (t === 'despesa' ? '−' : '') + nf(v) : '—'}</td>`; }).join('')}</tr>`).join('')}
+    ${linhasCat.length ? `<section class="card mb"><header><h2>Resultado por categoria</h2><span>valores em R$</span></header><div class="scroll"><table class="tbl sem-ordem"><thead><tr><th></th>${meses.map(ym => `<th class="num">${mesTxt(ym + '-01')}</th>`).join('')}</tr></thead><tbody>
+      ${linhasCat.map(([t, c]) => `<tr><td>${esc(c)}</td>${meses.map(ym => { const v = doMes(ym).filter(l => l.tipo === t && l.categoria === c).reduce((s, l) => s + Number(l.valor), 0); return `<td class="num mono ${t === 'despesa' ? 'muted' : ''}">${v ? (t === 'despesa' ? '−' : '') + nf(v) : '—'}</td>`; }).join('')}</tr>`).join('')}
       <tr><td><b>Resultado</b></td>${meses.map(ym => { const r = soma(doMes(ym), 'receita') - soma(doMes(ym), 'despesa'); return `<td class="num mono ${r < 0 ? 'down' : 'up'}"><b>${nf(r)}</b></td>`; }).join('')}</tr>
       <tr><td class="muted">Custo por litro</td>${meses.map(ym => { const l = litros(ym), d = soma(doMes(ym), 'despesa'); return `<td class="num mono muted">${l && d ? nf(d / l, 2) : '—'}</td>`; }).join('')}</tr>
     </tbody></table></div></section>` : ''}
     <section class="card"><header><h2>Lançamentos de ${nomeMes}</h2><div class="chips"><button class="chip ${soNotas ? '' : 'on'}" onclick="soNotas=false;carregar()">Todos<em>${atual.length}</em></button><button class="chip ${soNotas ? 'on' : ''}" onclick="soNotas=true;carregar()">Com nota fiscal<em>${atual.filter(l => l.nf_numero || l.arquivo).length}</em></button></div></header>
-      ${lista.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th>Fornecedor / cliente</th><th>Nota fiscal</th><th class="num">Valor</th><th></th></tr></thead><tbody>${lista.map(l => `<tr class="click" onclick="formLanc(${l.id})"><td class="mono">${fd(l.data)}</td><td>${pill(esc(l.categoria), l.tipo === 'receita' ? 'ok' : 'mute')}</td><td>${esc(l.descricao || '')}</td><td class="muted">${esc(l.fornecedor || '')}</td><td style="white-space:nowrap">${l.nf_numero ? `<span class="mono">NF ${esc(l.nf_numero)}</span> ` : ''}${l.arquivo ? `<button class="btn sm" onclick="event.stopPropagation();verArquivo('${esc(l.arquivo)}')">Ver arquivo</button>` : ''}${!l.nf_numero && !l.arquivo ? '<span class="muted">—</span>' : ''}</td><td class="num mono ${l.tipo === 'despesa' ? '' : 'up'}">${l.tipo === 'despesa' ? '−' : '+'}${brl(l.valor)}</td><td><button class="btn sm danger" onclick="event.stopPropagation();excluirLanc(${l.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${soNotas ? 'Nenhuma nota fiscal lançada neste mês.' : 'Nenhum lançamento neste mês.'}</div>`}</section>`;
+      ${lista.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Data</th>${variasFaz ? '<th>Fazenda</th>' : ''}<th>Categoria</th><th>Descrição</th><th>Parcela</th><th>Fornecedor / cliente</th><th>Nota fiscal</th><th>Situação</th><th class="num">Valor</th><th></th></tr></thead><tbody>${lista.map(l => `<tr class="click" onclick="formLanc(${l.id})"><td class="mono">${fd(l.data)}</td>${variasFaz ? `<td class="muted">${esc(nomeFaz(l.fazenda_id))}</td>` : ''}<td>${pill(esc(l.categoria), l.tipo === 'receita' ? 'ok' : 'mute')}</td><td>${esc(l.descricao || '')}</td><td class="mono">${l.parcela_total ? l.parcela_num + '/' + l.parcela_total : '—'}</td><td class="muted">${esc(l.fornecedor || '')}</td><td style="white-space:nowrap">${l.nf_numero ? `<span class="mono">NF ${esc(l.nf_numero)}</span> ` : ''}${l.arquivo ? `<button class="btn sm" onclick="event.stopPropagation();verArquivo('${esc(l.arquivo)}')">Ver arquivo</button>` : ''}${!l.nf_numero && !l.arquivo ? '<span class="muted">—</span>' : ''}</td><td>${situacaoLanc(l)}</td><td class="num mono ${l.tipo === 'despesa' ? '' : 'up'}">${l.tipo === 'despesa' ? '−' : '+'}${brl(l.valor)}</td><td style="white-space:nowrap">${!l.pago ? `<button class="btn sm" onclick="event.stopPropagation();formPagar(${l.id})">${l.tipo === 'receita' ? 'Recebi' : 'Paguei'}</button> ` : ''}<button class="btn sm danger" onclick="event.stopPropagation();excluirLanc(${l.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${soNotas ? 'Nenhuma nota fiscal lançada neste mês.' : 'Nenhum lançamento neste mês.'}</div>`}</section>`;
   } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar o financeiro</b>${esc(e.message)}</div></div>`; }
 }
-function optsCat(tipo, sel) { return CAT[tipo].map(c => `<option ${c === sel ? 'selected' : ''}>${c}</option>`).join(''); }
+
+function optsCat(tipo, sel) {
+  const lista = [...CATS[tipo]]; if (sel && !lista.includes(sel)) lista.unshift(sel);
+  return lista.map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('');
+}
+const optsFaz = sel => `<option value="">Geral (todas as fazendas)</option>` + BASE.fazendas.filter(f => f.ativo || f.id == sel).map(f => `<option value="${f.id}" ${f.id == sel ? 'selected' : ''}>${esc(f.nome)}</option>`).join('');
+function addMeses(dataIso, n) { const d = pd(dataIso), dia = d.getDate(), r = new Date(d.getFullYear(), d.getMonth() + n, 1); r.setDate(Math.min(dia, new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate())); return iso(r); }
+// divide o total em parcelas iguais; a diferença de centavos vai na última
+function dividir(total, n) { const p = Math.floor(total / n * 100) / 100; return Array.from({ length: n }, (_, i) => i < n - 1 ? p : +(total - p * (n - 1)).toFixed(2)); }
+function previaParcelas() {
+  const f = document.getElementById('mform'); if (!f) return;
+  const parc = f.querySelector('#fl-forma').value === 'parcelado', el = document.getElementById('fl-previa');
+  f.querySelectorAll('[data-parc]').forEach(x => x.hidden = x.dataset.parc === 'sim' ? !parc : parc);
+  if (!parc || !el) return;
+  const n = Math.max(2, Math.min(60, +f.querySelector('#fl-n').value || 2)), tot = +f.querySelector('#fl-valor').value || 0, d0 = f.querySelector('#fl-data').value;
+  const vals = dividir(tot, n);
+  el.innerHTML = tot && d0 ? `${n} parcelas de ${brl(vals[0])}${vals[n - 1] !== vals[0] ? ' (última ' + brl(vals[n - 1]) + ')' : ''}: ${vals.slice(0, 6).map((v, i) => fd(addMeses(d0, i))).join(', ')}${n > 6 ? '…' : ''}` : 'Informe o valor total e o 1º vencimento.';
+}
 function formLanc(id, nota) {
   const l = id ? LANC.find(x => x.id === id) : null, tipo = l ? l.tipo : 'despesa';
+  const fazPadrao = l ? l.fazenda_id : (BASE.fazenda ? BASE.fazenda.id : '');
   abrirModal({
-    titulo: l ? 'Editar lançamento' : nota ? 'Lançar nota fiscal' : 'Novo lançamento',
-    corpo: `<label>Tipo<select name="tipo" id="fl-tipo" onchange="document.getElementById('fl-cat').innerHTML=optsCat(this.value);document.getElementById('fl-forn-rot').textContent=this.value==='receita'?'Cliente':'Fornecedor'"><option value="despesa" ${tipo === 'despesa' ? 'selected' : ''}>Despesa</option><option value="receita" ${tipo === 'receita' ? 'selected' : ''}>Receita</option></select></label>
+    titulo: l ? (l.parcela_total ? `Editar parcela ${l.parcela_num}/${l.parcela_total}` : 'Editar lançamento') : nota ? 'Lançar nota fiscal' : 'Novo lançamento', wide: true,
+    corpo: `<label>Tipo<select name="tipo" id="fl-tipo" onchange="document.getElementById('fl-cat').innerHTML=optsCat(this.value);document.getElementById('fl-forn-rot').textContent=this.value==='receita'?'Cliente':'Fornecedor';document.getElementById('fl-pago-rot').textContent=this.value==='receita'?'Já foi recebido':'Já foi pago'"><option value="despesa" ${tipo === 'despesa' ? 'selected' : ''}>Despesa</option><option value="receita" ${tipo === 'receita' ? 'selected' : ''}>Receita</option></select></label>
     <label>Categoria<select name="categoria" id="fl-cat">${optsCat(tipo, l && l.categoria)}</select></label>
-    <label>Data<input name="data" id="fl-data" type="date" value="${l ? l.data : iso(HOJE)}" required></label><label>Valor (R$)<input name="valor" id="fl-valor" type="number" step="0.01" min="0" required value="${l ? l.valor : ''}"></label>
+    <label>Fazenda<select name="fazenda_id" id="fl-faz">${optsFaz(fazPadrao)}</select></label>
+    ${l ? '' : `<label>Forma de pagamento<select name="forma" id="fl-forma" onchange="previaParcelas()"><option value="avista">À vista</option><option value="parcelado">Parcelado</option></select></label>`}
+    <label><span data-parc="nao">${l && l.parcela_total ? 'Vencimento' : 'Data'}</span><span data-parc="sim" hidden>1º vencimento</span><input name="data" id="fl-data" type="date" value="${l ? l.data : iso(HOJE)}" required oninput="previaParcelas()"></label>
+    <label><span data-parc="nao">Valor (R$)</span><span data-parc="sim" hidden>Valor total (R$)</span><input name="valor" id="fl-valor" type="number" step="0.01" min="0" required value="${l ? l.valor : ''}" oninput="previaParcelas()"></label>
+    ${l ? '' : `<label data-parc="sim" hidden>Número de parcelas<input name="n" id="fl-n" type="number" min="2" max="60" value="2" oninput="previaParcelas()"></label>`}
+    <label class="chk" data-parc="nao"><input type="checkbox" name="pago" id="fl-pago" ${!l || l.pago ? 'checked' : ''}> <span id="fl-pago-rot">${tipo === 'receita' ? 'Já foi recebido' : 'Já foi pago'}</span></label>
+    ${l ? '' : `<label class="chk" data-parc="sim" hidden><input type="checkbox" name="primeira_paga" id="fl-1paga"> Primeira parcela já foi paga</label><div class="hint" data-parc="sim" hidden id="fl-previa"></div>`}
     <label class="full">Descrição<input name="descricao" id="fl-desc" value="${l ? esc(l.descricao || '') : ''}"></label>
     <div class="sec-t full">Nota fiscal</div>
     <label>Nº da nota<input name="nf_numero" id="fl-nf" value="${l ? esc(l.nf_numero || '') : ''}" ${nota ? 'required' : ''}></label>
     <label><span id="fl-forn-rot">${tipo === 'receita' ? 'Cliente' : 'Fornecedor'}</span><input name="fornecedor" id="fl-forn" value="${l ? esc(l.fornecedor || '') : ''}"></label>
     <label class="full">Arquivo da nota (PDF ou foto)<input name="arquivo" id="fl-arq" type="file" accept="application/pdf,image/*"></label>
-    ${l && l.arquivo ? `<div class="hint">Já tem um arquivo anexado. <button type="button" class="btn sm" onclick="verArquivo('${esc(l.arquivo)}')">Ver arquivo</button> Se escolher outro, ele substitui.</div>` : ''}`,
+    ${l && l.arquivo ? `<div class="hint">Já tem um arquivo anexado. <button type="button" class="btn sm" onclick="verArquivo('${esc(l.arquivo)}')">Ver arquivo</button> Se escolher outro, ele substitui.</div>` : ''}
+    ${l && l.parcela_total ? `<div class="hint">Esta é a parcela ${l.parcela_num} de ${l.parcela_total}. A alteração vale só para ela.</div>` : ''}`,
     salvar: async (f, form) => {
-      const reg = { tipo: f.tipo, categoria: f.categoria, data: f.data, valor: +f.valor, descricao: f.descricao.trim() || null, nf_numero: f.nf_numero.trim() || null, fornecedor: f.fornecedor.trim() || null };
+      const base = { tipo: f.tipo, categoria: f.categoria, fazenda_id: f.fazenda_id ? +f.fazenda_id : null, descricao: f.descricao.trim() || null, nf_numero: f.nf_numero.trim() || null, fornecedor: f.fornecedor.trim() || null };
       const arq = form.querySelector('#fl-arq').files[0];
       if (arq) {
         if (arq.size > 10 * 1024 * 1024) throw new Error('o arquivo passa de 10 MB.');
@@ -84,11 +126,40 @@ function formLanc(id, nota) {
         const caminho = `${f.data.slice(0, 4)}/${Date.now()}-${nome}`;
         const { error } = await sb.storage.from(BUCKET_NF).upload(caminho, arq, { contentType: arq.type || undefined });
         if (error) throw new Error('falha ao enviar o arquivo: ' + error.message);
-        reg.arquivo = caminho;
+        base.arquivo = caminho;
         if (l && l.arquivo) await sb.storage.from(BUCKET_NF).remove([l.arquivo]);
       }
-      if (l) await q(sb.from('lancamentos').update(reg).eq('id', id)); else await q(sb.from('lancamentos').insert(reg));
-      await depoisDeSalvar(reg.nf_numero ? `Nota ${reg.nf_numero} lançada` : 'Lançamento salvo');
+      if (l) {
+        const pago = !!f.pago;
+        await q(sb.from('lancamentos').update({ ...base, data: f.data, valor: +f.valor, pago, data_pagamento: pago ? (l.data_pagamento || iso(HOJE)) : null }).eq('id', id));
+        await depoisDeSalvar('Lançamento salvo'); return;
+      }
+      if (f.forma === 'parcelado') {
+        const n = Math.max(2, Math.min(60, +f.n || 2)), vals = dividir(+f.valor, n), grupo = crypto.randomUUID();
+        const regs = vals.map((v, i) => ({ ...base, data: addMeses(f.data, i), valor: v, parcela_num: i + 1, parcela_total: n, grupo, pago: i === 0 && !!f.primeira_paga, data_pagamento: i === 0 && f.primeira_paga ? addMeses(f.data, 0) : null }));
+        await q(sb.from('lancamentos').insert(regs));
+        await depoisDeSalvar(`${n} parcelas lançadas`);
+      } else {
+        const pago = !!f.pago;
+        await q(sb.from('lancamentos').insert({ ...base, data: f.data, valor: +f.valor, pago, data_pagamento: pago ? f.data : null }));
+        await depoisDeSalvar(base.nf_numero ? `Nota ${base.nf_numero} lançada` : 'Lançamento salvo');
+      }
+    }
+  });
+  previaParcelas();
+}
+// marcar como pago/recebido só quando a pessoa confirma, com a data real do pagamento
+function formPagar(id) {
+  const l = LANC.find(x => x.id === id) || PEND.find(x => x.id === id), rec = l.tipo === 'receita';
+  abrirModal({
+    titulo: (rec ? 'Registrar recebimento' : 'Registrar pagamento') + (l.parcela_total ? ` · parcela ${l.parcela_num}/${l.parcela_total}` : ''),
+    corpo: `<div class="full"><b>${esc(l.categoria)}</b>${l.descricao ? ' · ' + esc(l.descricao) : ''}<br><span class="muted">Vencimento ${fdy(l.data)} · ${brl(l.valor)}</span></div>
+    <label>Data em que ${rec ? 'recebeu' : 'pagou'}<input name="data" id="fpg-data" type="date" value="${iso(HOJE)}" required></label>
+    <label>Valor ${rec ? 'recebido' : 'pago'} (R$)<input name="valor" id="fpg-valor" type="number" step="0.01" min="0" value="${l.valor}" required></label>`,
+    textoSalvar: rec ? 'Confirmar recebimento' : 'Confirmar pagamento',
+    salvar: async f => {
+      await q(sb.from('lancamentos').update({ pago: true, data_pagamento: f.data, valor: +f.valor }).eq('id', id));
+      await depoisDeSalvar(rec ? 'Recebimento registrado' : 'Pagamento registrado');
     }
   });
 }
@@ -98,12 +169,48 @@ async function verArquivo(caminho) {
   window.open(data.signedUrl, '_blank');
 }
 function excluirLanc(id) {
-  const l = LANC.find(x => x.id === id);
+  const l = LANC.find(x => x.id === id) || PEND.find(x => x.id === id);
+  if (l.grupo && l.parcela_total) {
+    abrirModal({
+      titulo: 'Excluir parcela', textoSalvar: 'Excluir',
+      corpo: `<div class="full">Esta é a parcela ${l.parcela_num} de ${l.parcela_total}.</div>
+      <label class="chk full"><input type="radio" name="quais" value="esta" checked> Excluir só esta parcela</label>
+      <label class="chk full"><input type="radio" name="quais" value="todas"> Excluir todas as ${l.parcela_total} parcelas</label>`,
+      salvar: async f => {
+        if (f.quais === 'todas') await q(sb.from('lancamentos').delete().eq('grupo', l.grupo)); else await q(sb.from('lancamentos').delete().eq('id', id));
+        if (l.arquivo && f.quais === 'todas') await sb.storage.from(BUCKET_NF).remove([l.arquivo]);
+        await depoisDeSalvar(f.quais === 'todas' ? 'Parcelas excluídas' : 'Parcela excluída');
+      }
+    });
+    return;
+  }
   confirmar('Excluir lançamento', 'Excluir este lançamento?' + (l && l.arquivo ? ' O arquivo da nota também será apagado.' : ''), async () => {
     await q(sb.from('lancamentos').delete().eq('id', id));
     if (l && l.arquivo) await sb.storage.from(BUCKET_NF).remove([l.arquivo]);
     await depoisDeSalvar('Lançamento excluído');
   }, 'Excluir');
+}
+// ---------- categorias cadastráveis ----------
+function formCategorias() {
+  const linha = c => `<tr><td><input id="cat_${c.id}" name="cat_${c.id}" value="${esc(c.nome)}" style="width:100%"></td><td><label class="chk" style="font-size:.8rem"><input type="checkbox" name="ativo_${c.id}" ${c.ativo ? 'checked' : ''}> em uso</label></td></tr>`;
+  abrirModal({
+    titulo: 'Categorias do financeiro', wide: true, textoSalvar: 'Salvar categorias',
+    corpo: `<div class="full grid g2e" style="margin:0">
+      <div><div class="sec-t" style="margin-top:0">Receitas</div><table class="tbl sem-ordem"><tbody>${CATS_TODAS.filter(c => c.tipo === 'receita').map(linha).join('')}</tbody></table></div>
+      <div><div class="sec-t" style="margin-top:0">Despesas</div><table class="tbl sem-ordem"><tbody>${CATS_TODAS.filter(c => c.tipo === 'despesa').map(linha).join('')}</tbody></table></div></div>
+    <div class="sec-t full">Nova categoria</div>
+    <label>Tipo<select name="novo_tipo" id="fc-novo-tipo"><option value="despesa">Despesa</option><option value="receita">Receita</option></select></label>
+    <label>Nome<input name="novo_nome" id="fc-novo-nome" placeholder="deixe em branco se não for criar"></label>
+    <div class="hint">Desmarcar "em uso" tira a categoria das listas sem apagar os lançamentos antigos. Renomear não muda os lançamentos já feitos.</div>`,
+    salvar: async f => {
+      for (const c of CATS_TODAS) {
+        const nome = (f['cat_' + c.id] || '').trim(), ativo = !!f['ativo_' + c.id];
+        if (nome && (nome !== c.nome || ativo !== c.ativo)) await q(sb.from('categorias_financeiras').update({ nome, ativo }).eq('id', c.id));
+      }
+      if (f.novo_nome.trim()) await q(sb.from('categorias_financeiras').insert({ tipo: f.novo_tipo, nome: f.novo_nome.trim(), ordem: 50 }));
+      await depoisDeSalvar('Categorias salvas');
+    }
+  });
 }
 </script>
 </body>

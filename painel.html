@@ -37,20 +37,22 @@ async function carregar() {
     const al = calcAlertas({ manejos, insumosCriticos: nut.criticos });
     const L = lact(), vacas = A.filter(a => a.categoria === 'Lactação' || a.categoria === 'Seca');
     const pren = vacas.filter(a => a.situacao_reprodutiva === 'Prenhe').length;
-    const ult = tanque[tanque.length - 1];
-    const ant = tanque.slice(-8, -1), m7 = ant.length ? ant.reduce((s, p) => s + Number(p.litros), 0) / ant.length : null;
+    const { serie: tanqueS, geral: tanqueGeral } = serieTanque(tanque);
+    const ult = tanqueS[tanqueS.length - 1];
+    const ant = tanqueS.slice(-8, -1), m7 = ant.length ? ant.reduce((s, p) => s + Number(p.litros), 0) / ant.length : null;
     const variacao = ult && m7 ? (Number(ult.litros) / m7 - 1) * 100 : null;
     const comPes = L.map(prodAtual).filter(v => v != null);
-    // Com uma fazenda escolhida o tanque (que é de todas) não serve de base: usa as pesagens das vacas dela
-    const litrosBase = !BASE.fazenda && ult ? Number(ult.litros) : comPes.reduce((s, v) => s + v, 0);
-    const media = !BASE.fazenda && ult && L.length ? Number(ult.litros) / L.length : comPes.length ? comPes.reduce((s, v) => s + v, 0) / comPes.length : null;
+    // tanque geral com uma fazenda escolhida não serve de base (é de todas): aí usa as pesagens das vacas dela
+    const usaTanque = ult && !(BASE.fazenda && tanqueGeral);
+    const litrosBase = usaTanque ? Number(ult.litros) : comPes.reduce((s, v) => s + v, 0);
+    const media = usaTanque && L.length ? Number(ult.litros) / L.length : comPes.length ? comPes.reduce((s, v) => s + v, 0) / comPes.length : null;
     const an = analises[0];
     const cats = [['Lactação', 'var(--accent)'], ['Seca', 'var(--info)'], ['Novilha', 'var(--warn)'], ['Bezerra', 'var(--cost)'], ...(A.some(ehMacho) ? [['Machos', 'var(--c5)']] : [])];
     const daCat = c => A.filter(a => c === 'Machos' ? ehMacho(a) : a.categoria === c);
     const prox = A.filter(a => prevParto(a)).sort((a, b) => prevParto(a) - prevParto(b)).slice(0, 6);
-    const pts = tanque.map(t => ({ d: pd(t.data), v: Number(t.litros) }));
+    const pts = tanqueS.map(t => ({ d: pd(t.data), v: Number(t.litros) }));
 
-    main.innerHTML = head('Painel do dia', 'Resumo da ordenha, do rebanho e do que precisa de atenção hoje.' + notaFazenda(true), botoes) +
+    main.innerHTML = head('Painel do dia', 'Resumo da ordenha, do rebanho e do que precisa de atenção hoje.' + notaFazenda(tanqueGeral), botoes) +
     `<div class="kpis">
       ${kpi('Leite entregue' + (ult ? ' · ' + fd(ult.data) : ''), ult ? nf(ult.litros) : '—', variacao != null ? `<span class="${variacao >= 0 ? 'up' : 'down'}">${variacao >= 0 ? '▲' : '▼'} ${nf(Math.abs(variacao), 1)}%</span> vs. média 7 dias` : 'lance em Produção de leite', ult ? 'L' : '')}
       ${kpi('Vacas em lactação', L.length, vacas.length ? `de ${vacas.length} vacas · ${nf(L.length / vacas.length * 100)}%` : '')}

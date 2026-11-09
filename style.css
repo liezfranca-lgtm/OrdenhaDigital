@@ -97,6 +97,11 @@ table.tbl{width:100%;border-collapse:collapse;font-size:.86rem}
 .tbl tbody tr.click{cursor:pointer}
 .tbl tbody tr.click:hover{background:var(--sunk)}
 .tbl th.num{text-align:right}
+.tbl th.ordenavel{cursor:pointer;user-select:none}
+.tbl th.ordenavel:hover{color:var(--ink)}
+.tbl th[data-ord]{color:var(--accent)}
+.tbl th[data-ord=asc]::after{content:" ▲";font-size:.65rem}
+.tbl th[data-ord=desc]::after{content:" ▼";font-size:.65rem}
 .tbl input,.tbl select{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:4px 6px;width:78px;font-size:.86rem}
 .brinco{font:600 .8rem var(--f-mono);background:var(--sunk);border:1px solid var(--line);border-radius:5px;padding:1px 6px;white-space:nowrap}
 

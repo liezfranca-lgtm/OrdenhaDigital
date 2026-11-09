@@ -298,6 +298,14 @@ const AJUDA_BOTOES = {
   'Com nota fiscal': 'Mostra só os lançamentos que têm nota fiscal.',
   'Cadastrar fazenda': 'Cadastra uma propriedade: nome, município, áreas, inscrição estadual e CAR.',
   'Ver só esta fazenda': 'Filtra todas as telas do rebanho para mostrar só os animais desta fazenda. Para voltar, escolha "Todas as fazendas" no filtro do topo.',
+  'Relatório de óbitos': 'Abre a lista dos animais que morreram, com causa, categoria e idade, filtrando por período. Dá para imprimir e exportar.',
+  'Vender p/ outra fazenda': 'Passa o animal para outra fazenda do grupo. Com valor, lança a venda numa fazenda e a compra na outra.',
+  'Paguei': 'Marca esta conta ou parcela como paga, com a data e o valor do pagamento.',
+  'Recebi': 'Marca este valor como recebido, com a data e o valor.',
+  'Categorias': 'Abre a lista de categorias de receita e despesa para renomear, desativar ou criar novas.',
+  'Imprimir': 'Imprime esta tela (ou salva em PDF pela opção da impressora).',
+  'Voltar ao rebanho': 'Volta para a lista do rebanho.',
+  'Exportar (planilha)': 'Baixa a lista em um arquivo que abre no Excel.',
   'Reativar': 'Traz de volta o que foi desativado. Tudo o que estava guardado (animais, dieta, doses, histórico) volta junto.',
   'Alternar tema': 'Troca entre o tema claro e o escuro.',
   'Sair': 'Sai do sistema neste aparelho.',
@@ -339,3 +347,50 @@ document.addEventListener('pointerout', e => {
   if (b && !(e.relatedTarget && b.contains(e.relatedTarget))) { clearTimeout(_tBotao); esconderSigla(); }
 });
 document.addEventListener('pointerdown', () => { clearTimeout(_tBotao); esconderSigla(); }, true);
+
+// ---------- ordenar qualquer tabela clicando no título da coluna (crescente / decrescente) ----------
+// Entende números (1.234,5 · R$ · L · kg · %), datas (dd/mm/aaaa e dd/mm), idades (8 meses, 2a 3m) e texto.
+// Linhas de mensagem (célula com colspan) e tabelas com a classe "sem-ordem" ficam de fora.
+function _chaveCelula(td) {
+  const t = (td ? td.innerText : '').replace(/\s+/g, ' ').trim();
+  if (!t || t === '—' || t === '-') return null;
+  let m = t.match(/^(\d{2})\/(\d{2})\/(\d{4})/); if (m) return +(m[3] + m[2] + m[1]);
+  m = t.match(/^(\d{2})\/(\d{2})(\s|$)/); if (m) return +(m[2] + m[1]);
+  m = t.match(/^(\d+)a (\d+)m$/); if (m) return +m[1] * 12 + +m[2];
+  m = t.match(/^(\d+) (meses|mês)$/); if (m) return +m[1];
+  m = t.match(/^(\d+) dias?$/); if (m) return +m[1] / 30.44;
+  const limpo = t.replace(/^−/, '-').replace(/^\+/, '').replace(/^(-?)R\$\s?/, '$1').replace(/^[▲▼+]\s?/, '');
+  m = limpo.match(/^-?\d{1,3}(\.\d{3})*(,\d+)?(?=$|\s|[a-zA-Z%°/])|^-?\d+(,\d+)?(?=$|\s|[a-zA-Z%°/])/);
+  if (m) return parseFloat(m[0].replace(/\./g, '').replace(',', '.')) * (t.startsWith('▼') ? -1 : 1);
+  return t.toLowerCase();
+}
+function ordenarTabela(th) {
+  const tabela = th.closest('table'), corpo = tabela.tBodies[0]; if (!corpo) return;
+  const col = [...th.parentNode.children].indexOf(th);
+  const dir = th.dataset.ord === 'asc' ? 'desc' : 'asc';
+  th.parentNode.querySelectorAll('th').forEach(x => { delete x.dataset.ord; });
+  th.dataset.ord = dir;
+  const linhas = [...corpo.rows].filter(r => !r.querySelector('td[colspan]'));
+  const fixas = [...corpo.rows].filter(r => r.querySelector('td[colspan]'));
+  linhas.map((r, i) => ({ r, i, v: _chaveCelula(r.cells[col]) })).sort((a, b) => {
+    if (a.v == null && b.v == null) return a.i - b.i;
+    if (a.v == null) return 1; if (b.v == null) return -1;        // vazios sempre no fim
+    const c = typeof a.v === 'number' && typeof b.v === 'number' ? a.v - b.v : String(a.v).localeCompare(String(b.v), 'pt-BR', { numeric: true });
+    return (dir === 'asc' ? c : -c) || a.i - b.i;
+  }).forEach(x => corpo.appendChild(x.r));
+  fixas.forEach(r => corpo.appendChild(r));
+}
+function marcarTabelasOrdenaveis(raiz) {
+  if (!raiz) return;
+  raiz.querySelectorAll('table.tbl:not(.sem-ordem) thead th').forEach(th => {
+    if (th.dataset.ordOk) return; th.dataset.ordOk = '1';
+    if (th.textContent.trim()) { th.classList.add('ordenavel'); th.tabIndex = 0; th.title = 'Clique para ordenar'; }
+  });
+}
+document.addEventListener('click', e => { const th = e.target.closest && e.target.closest('th.ordenavel'); if (th) ordenarTabela(th); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches && e.target.matches('th.ordenavel')) ordenarTabela(e.target); });
+let _pendOrd = false;
+new MutationObserver(() => {
+  if (_pendOrd) return; _pendOrd = true;
+  setTimeout(() => { _pendOrd = false; marcarTabelasOrdenaveis(document.getElementById('main')); marcarTabelasOrdenaveis(document.getElementById('layer')); }, 40);
+}).observe(document.documentElement, { childList: true, subtree: true });

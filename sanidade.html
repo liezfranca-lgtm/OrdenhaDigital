@@ -16,7 +16,7 @@
 <script src="glossario.js"></script>
 <script src="animal.js"></script>
 <script>
-let MANEJOS = [];
+let MANEJOS = [], histMes = iso(HOJE).slice(0, 7), HIST = [], NOMES_FORA = new Map();
 (async () => { if (!await iniciarPagina('sanidade')) return; window.aoSalvar = carregar; carregar(); })();
 
 async function carregar() {
@@ -26,12 +26,19 @@ async function carregar() {
     MANEJOS = await carregarManejos();
     const manInativos = await q(sb.from('manejos_sanitarios').select('id,nome,frequencia_dias').eq('ativo', false).order('nome'));
     const T = BASE.tratamentos, ativos = T.filter(t => pd(t.data_liberacao) > HOJE || pd(addD(pd(t.data_inicio), t.dias_aplicacao)) > HOJE);
-    const hist = T.filter(t => pd(t.data_inicio) >= addD(HOJE, -90)).sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
+    const hist90 = T.filter(t => pd(t.data_inicio) >= addD(HOJE, -90));
+    // histórico do mês escolhido (busca no banco, inclui animais que já saíram do rebanho)
+    const [hy, hm] = histMes.split('-').map(Number);
+    HIST = await q(sb.from('tratamentos').select('*').gte('data_inicio', histMes + '-01').lte('data_inicio', iso(new Date(hy, hm, 0))).order('data_inicio', { ascending: false }));
+    const fora = [...new Set(HIST.map(t => t.animal_id).filter(id => !BASE.porId.get(id)))];
+    NOMES_FORA = new Map(fora.length ? (await q(sb.from('animais').select('id,brinco,nome,fazenda_id').in('id', fora))).map(a => [a.id, a]) : []);
+    // com uma fazenda escolhida, só os tratamentos dos animais dela
+    const hist = BASE.fazenda ? HIST.filter(t => BASE.porId.get(t.animal_id) || (NOMES_FORA.get(t.animal_id) || {}).fazenda_id === BASE.fazenda.id) : HIST;
     const L = lact(), ccsA = L.filter(a => ccsAtual(a) > 500).sort((a, b) => ccsAtual(b) - ccsAtual(a));
-    const mastite = hist.filter(t => /mastite cl[ií]nica/i.test(t.doenca));
+    const mastite = hist90.filter(t => /mastite cl[ií]nica/i.test(t.doenca));
     const descarte = L.filter(emCarencia).reduce((s, a) => s + (prodAtual(a) || 0), 0);
     const b19 = calcAlertas().b19;
-    const nomeAnimal = id => { const a = BASE.porId.get(id); return a ? animLink(a) : '<span class="muted">fora do rebanho</span>'; };
+    const nomeAnimal = id => { const a = BASE.porId.get(id) || NOMES_FORA.get(id); return a ? animLink(a) + (BASE.porId.get(id) ? '' : ' ' + pill('saiu do rebanho', 'mute')) : '<span class="muted">fora do rebanho</span>'; };
 
     main.innerHTML = head('Sanidade', 'Calendário de vacinas e exames, tratamentos com carência de leite e controle de mastite.', `<button class="btn" onclick="formManejo()">Novo manejo no calendário</button><button class="btn pri" onclick="formTratamento()">Registrar tratamento</button>`) +
     `<div class="kpis">
@@ -51,8 +58,8 @@ async function carregar() {
       <section class="card"><header><h2>CCS individual alta</h2><span>última pesagem com CCS</span></header>
         ${ccsA.length ? `<div class="list">${ccsA.map(a => `<div class="li" onclick="ficha(${a.id})"><span>${animLink(a)}<br><small>${a.numero_lactacao}ª lactação · DEL ${delDe(a)}</small></span><b class="mono down">${nf(ccsAtual(a))} mil</b></div>`).join('')}</div>` : '<div class="empty">Nenhuma vaca acima de 500 mil. A CCS individual é lançada junto com a medição de leite (botão Medir leite).</div>'}</section>
     </div>
-    <section class="card"><header><h2>Histórico de tratamentos · 90 dias</h2></header>
-      ${hist.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Início</th><th>Animal</th><th>Doença</th><th>Medicamento</th><th class="num">Carência</th></tr></thead><tbody>${hist.map(t => `<tr><td class="mono">${fd(t.data_inicio)}</td><td>${nomeAnimal(t.animal_id)}</td><td>${esc(t.doenca)}</td><td class="muted">${esc(t.medicamento)}</td><td class="num mono">${t.carencia_leite} d</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nenhum tratamento nos últimos 90 dias.</div>'}</section>`;
+    <section class="card"><header><h2>Histórico de tratamentos</h2><div class="actions"><label class="muted" for="histMes" style="font-size:.8rem">Mês</label><input type="month" id="histMes" class="search" style="width:auto" value="${histMes}" onchange="histMes=this.value||histMes;carregar()"></div></header>
+      ${hist.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>Início</th><th>Animal</th><th>Doença</th><th>Medicamento</th><th class="num">Dias</th><th class="num">Carência</th><th>Libera</th><th></th></tr></thead><tbody>${hist.map(t => `<tr class="click" onclick="formEditarTrat(${t.id})"><td class="mono">${fdy(t.data_inicio)}</td><td>${nomeAnimal(t.animal_id)}</td><td>${esc(t.doenca)}</td><td class="muted">${esc(t.medicamento)}</td><td class="num mono">${t.dias_aplicacao}</td><td class="num mono">${t.carencia_leite} d</td><td class="mono">${t.carencia_leite ? fd(t.data_liberacao) : '—'}</td><td style="white-space:nowrap"><button class="btn sm" onclick="event.stopPropagation();formEditarTrat(${t.id})">Editar</button> <button class="btn sm danger" onclick="event.stopPropagation();excluirTrat(${t.id})">Excluir</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">Nenhum tratamento iniciado em ${mesTxt(histMes + '-01')}.</div>`}</section>`;
   } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar a sanidade</b>${esc(e.message)}</div></div>`; }
 }
 
@@ -86,6 +93,23 @@ function formManejo(id) {
       if (m) { if (f.inativar) reg.ativo = false; await q(sb.from('manejos_sanitarios').update(reg).eq('id', id)); }
       else await q(sb.from('manejos_sanitarios').insert(reg));
       await depoisDeSalvar('Calendário atualizado');
+    }
+  });
+}
+function formEditarTrat(id) {
+  const t = HIST.find(x => x.id === id) || BASE.tratamentos.find(x => x.id === id); if (!t) return;
+  const a = BASE.porId.get(t.animal_id) || NOMES_FORA.get(t.animal_id);
+  abrirModal({
+    titulo: 'Editar tratamento' + (a ? ' · ' + esc(nomeCurto(a)) : ''),
+    corpo: `<label class="full">Doença / motivo<input name="doenca" id="fet-doenca" required value="${esc(t.doenca)}"></label>
+    <label class="full">Medicamento<input name="medicamento" id="fet-med" required value="${esc(t.medicamento)}"></label>
+    <label>Início<input name="data_inicio" id="fet-inicio" type="date" required value="${t.data_inicio}"></label><label>Dias de aplicação<input name="dias" id="fet-dias" type="number" min="1" required value="${t.dias_aplicacao}"></label>
+    <label>Carência do leite (dias)<input name="car_leite" id="fet-car" type="number" min="0" required value="${t.carencia_leite}"></label><label>Carência da carne (dias)<input name="car_carne" id="fet-carne" type="number" min="0" value="${t.carencia_carne || 0}"></label>
+    <label class="full">Observação<input name="obs" id="fet-obs" value="${esc(t.observacao || '')}"></label>
+    <div class="hint">A data de liberação do leite é recalculada sozinha: início + dias de aplicação + carência.</div>`,
+    salvar: async f => {
+      await q(sb.from('tratamentos').update({ doenca: f.doenca.trim(), medicamento: f.medicamento.trim(), data_inicio: f.data_inicio, dias_aplicacao: +f.dias, carencia_leite: +f.car_leite || 0, carencia_carne: +f.car_carne || 0, observacao: f.obs.trim() || null }).eq('id', id));
+      await depoisDeSalvar('Tratamento atualizado');
     }
   });
 }

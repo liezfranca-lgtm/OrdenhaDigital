@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrdenhaDigital — Relatório de óbitos</title>
+<link rel="icon" href="icone-gm.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>@media print{.side,.vhead .actions,.btn{display:none!important}.app{display:block}main{padding:0}.card{break-inside:avoid;border-color:#ccc}}</style>
+</head>
+<body>
+<script src="supabase-config.js"></script>
+<script src="layout.js"></script>
+<script src="glossario.js"></script>
+<script src="animal.js"></script>
+<script>
+let de = HOJE.getFullYear() + '-01-01', ate = iso(HOJE), OBITOS = [];
+(async () => { if (!await iniciarPagina('rebanho')) return; window.aoSalvar = carregar; carregar(); })();
+
+async function carregar() {
+  const main = document.getElementById('main');
+  try {
+    await carregarBase();
+    const todos = await buscarPaginado(() => sb.from('animais').select('*').eq('ativo', false).eq('motivo_saida', 'Morte').gte('data_saida', de).lte('data_saida', ate).order('data_saida', { ascending: false }));
+    OBITOS = BASE.fazenda ? todos.filter(a => a.fazenda_id === BASE.fazenda.id) : todos;
+    const ids = OBITOS.map(a => a.id);
+    const evs = ids.length ? await q(sb.from('eventos').select('animal_id,detalhe,tipo').in('animal_id', ids).in('tipo', ['Óbito', 'Saída'])) : [];
+    const obs = new Map(evs.map(e => [e.animal_id, (e.detalhe || '').split(' · ').slice(2).join(' · ')]));
+    const causa = a => a.causa_morte || 'Não informada';
+    const idadeMorte = a => a.data_nascimento ? (() => { const d = dd(pd(a.data_saida), pd(a.data_nascimento)); return d < 60 ? d + ' dias' : d < 730 ? Math.floor(d / 30.44) + ' meses' : Math.floor(d / 365.25) + ' anos'; })() : '—';
+    const crias = OBITOS.filter(ehCria).length, rebanho = BASE.animais.length + OBITOS.length;
+    const agrupa = f => { const m = {}; OBITOS.forEach(a => { const k = f(a); m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((x, y) => y[1] - x[1]); };
+    const porCausa = agrupa(causa), porCat = agrupa(a => a.categoria);
+    const barras = lista => `<table class="tbl sem-ordem"><tbody>${lista.map(([k, n]) => `<tr><td>${esc(k)}</td><td style="width:45%"><div class="meter"><span style="width:${n / OBITOS.length * 100}%;background:var(--bad)"></span></div></td><td class="num mono">${n}</td><td class="num muted">${nf(n / OBITOS.length * 100)}%</td></tr>`).join('')}</tbody></table>`;
+    const variasFaz = !BASE.fazenda && BASE.fazendas.filter(f => f.ativo).length > 1;
+
+    main.innerHTML = head('Relatório de óbitos' + (BASE.fazenda ? ' · ' + esc(BASE.fazenda.nome) : ''), `Animais que morreram entre ${fdy(de)} e ${fdy(ate)}. A causa é informada ao dar a saída do animal (ficha → Saída do rebanho → Morte).`,
+      `<label class="muted" style="font-size:.8rem" for="fde">De</label><input type="date" id="fde" class="search" style="width:auto" value="${de}" onchange="de=this.value||de;carregar()">
+       <label class="muted" style="font-size:.8rem" for="fate">até</label><input type="date" id="fate" class="search" style="width:auto" value="${ate}" onchange="ate=this.value||ate;carregar()">
+       <a class="btn" href="rebanho.html">Voltar ao rebanho</a><button class="btn" onclick="exportar()">Exportar (planilha)</button><button class="btn pri" onclick="window.print()">Imprimir</button>`) +
+    (OBITOS.length ? `<div class="kpis">
+      ${kpi('Óbitos no período', OBITOS.length, 'animais')}
+      ${kpi('Mortalidade', nf(OBITOS.length / rebanho * 100, 1) + '%', 'dos animais do rebanho no período')}
+      ${kpi('Crias', crias, 'bezerras e bezerros que morreram')}
+      ${kpi('Principal causa', esc(porCausa[0][0]), porCausa[0][1] + ' caso(s)')}
+    </div>
+    <div class="grid g2e">
+      <section class="card"><header><h2>Por causa</h2></header>${barras(porCausa)}</section>
+      <section class="card"><header><h2>Por categoria</h2></header>${barras(porCat)}</section>
+    </div>
+    <section class="card"><header><h2>Animais</h2><span>${OBITOS.length} no período</span></header><div class="scroll"><table class="tbl"><thead><tr><th>Data</th><th>Animal</th><th>Categoria</th><th>Raça</th><th>Idade</th>${variasFaz ? '<th>Fazenda</th>' : ''}<th>Causa</th><th>Observação</th></tr></thead><tbody>
+      ${OBITOS.map(a => `<tr><td class="mono">${fdy(a.data_saida)}</td><td>${animLink(a)}</td><td>${a.categoria}</td><td class="muted">${esc(a.raca || '—')}</td><td class="mono">${idadeMorte(a)}</td>${variasFaz ? `<td class="muted">${esc(a.fazenda_id ? BASE.fazPorId.get(a.fazenda_id)?.nome || '—' : '—')}</td>` : ''}<td>${pill(esc(causa(a)), a.causa_morte ? 'bad' : 'mute')}</td><td class="muted">${esc(obs.get(a.id) || '')}</td></tr>`).join('')}</tbody></table></div></section>`
+    : `<section class="card"><div class="empty-big"><b>Nenhum óbito no período</b>Quando um animal morrer, registre na ficha dele: Saída do rebanho → motivo Morte → causa.</div></section>`);
+  } catch (e) { main.innerHTML = `<div class="card"><div class="empty-big"><b>Não foi possível carregar o relatório</b>${esc(e.message)}</div></div>`; }
+}
+function exportar() {
+  const cel = v => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const linhas = [['Data', 'Brinco', 'Nome', 'Categoria', 'Raça', 'Nascimento', 'Fazenda', 'Causa'].join(';'),
+    ...OBITOS.map(a => [fdy(a.data_saida), a.brinco, a.nome, a.categoria, a.raca, a.data_nascimento ? fdy(a.data_nascimento) : '', a.fazenda_id ? BASE.fazPorId.get(a.fazenda_id)?.nome : '', a.causa_morte || 'Não informada'].map(cel).join(';'))];
+  const url = URL.createObjectURL(new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+  const l = document.createElement('a'); l.href = url; l.download = `obitos-${de}-a-${ate}.csv`; document.body.appendChild(l); l.click(); l.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+</script>
+</body>
+</html>

@@ -15,4 +15,5 @@ delete from insumos;
 update animais set mae_id = null;
 delete from animais;          -- apaga junto eventos, pesagens e tratamentos
 delete from touros;
+delete from inseminadores;  -- inseminadores de exemplo
 delete from fazendas;       -- fazendas de exemplo (o cliente cadastra as reais)

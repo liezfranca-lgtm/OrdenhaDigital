@@ -445,7 +445,7 @@ document.addEventListener('mouseover', e => {
   mostrarTermo(t);
 });
 document.addEventListener('mouseout', e => { if (e.target.closest && e.target.closest('.termo') && !(e.relatedTarget && e.target.closest('.termo').contains(e.relatedTarget))) esconderSigla(); });
-document.addEventListener('click', e => { const t = e.target.closest && e.target.closest('.termo'); if (t && explicacoesLigadas() && !t.closest('a, button')) mostrarTermo(t); });
+document.addEventListener('click', e => { const t = e.target.closest && e.target.closest('.termo'); if (t && explicacoesLigadas() && !t.closest('a, button, th.ordenavel')) mostrarTermo(t); });
 function mostrarTermo(t) {
   const rot = (t.closest('.form label') ? t.textContent : t.textContent).replace(/\s+/g, ' ').trim();
   mostrarDica(t, t.dataset.tip, rot.length <= 40 ? rot : '');
